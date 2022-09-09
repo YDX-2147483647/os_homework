@@ -39,6 +39,26 @@ struct Task {
     }
 };
 
+/** 运行了一半的任务，只有可抢占算法会用到。 */
+struct TaskRuntime {
+    /** 进程号 */
+    int id;
+    /** 剩余运行时间 */
+    int duration_left;
+    /** 优先级 */
+    int priority;
+    /** 时间片 */
+    int quantum;
+
+    TaskRuntime(const Task &task)
+        : id(task.id), duration_left(task.duration), priority(task.priority), quantum(task.quantum) {}
+
+    bool operator==(const TaskRuntime &other)
+    {
+        return this->id == other.id;
+    }
+};
+
 /** 单条执行记录 */
 struct ScheduleRecord {
     /** 进程号 */
@@ -176,8 +196,57 @@ Schedule shortest_job_first(const list<Task> &tasks)
 
 Schedule shortest_remaining_time_first(const list<Task> &tasks)
 {
-    not_implemented();
-    return Schedule();
+    Schedule schedule;
+
+    int clock = 0;
+    auto first_future_task = tasks.begin();
+    // arrived but not done tasks
+    list<TaskRuntime> ready_tasks;
+
+    while (first_future_task != tasks.end() || !ready_tasks.empty()) {
+        // 1. Update `tasks_ready` and `first_future_task`
+        while (first_future_task != tasks.end() && first_future_task->arrive_at <= clock) {
+            ready_tasks.push_back(TaskRuntime(*first_future_task));
+            first_future_task++;
+        }
+
+        // 2. Find the shortest task in `tasks_ready`
+        auto shortest_task = ready_tasks.front();
+        for (auto &&t : ready_tasks) {
+            if (shortest_task.duration_left > t.duration_left) {
+                shortest_task = t;
+            }
+        }
+        ready_tasks.remove(shortest_task);
+
+        // 3. Run it
+        // 3.1 Calculate how long will it runs.
+        int duration = shortest_task.duration_left;
+        if (first_future_task != tasks.end()) {
+            duration = min(duration, first_future_task->arrive_at - clock);
+        }
+        // 3.2 Update the schedule
+        if (!schedule.empty() && schedule.back().id == shortest_task.id) {
+            // I know it's weird, but the test cases imply this.
+            schedule.back().end_at = clock + duration;
+        } else {
+            schedule.push_back(ScheduleRecord(
+                shortest_task.id,
+                clock,
+                clock + duration,
+                shortest_task.priority));
+        }
+        // 3.3 Let time flies.
+        shortest_task.duration_left -= duration;
+        clock += duration;
+
+        // 4. Push the task back to `ready_tasks` if not completed
+        if (shortest_task.duration_left > 0) {
+            ready_tasks.push_back(shortest_task);
+        }
+    }
+
+    return schedule;
 }
 
 Schedule round_robin(const list<Task> &tasks)
