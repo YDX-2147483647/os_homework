@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <iostream>
 #include <list>
+#include <signal.h>
 #include <string.h>
 #include <vector>
 
@@ -79,7 +80,7 @@ typedef vector<ScheduleRecord> Schedule;
 /** 输入 */
 struct Input {
     Algorithm algorithm;
-    /** 任务列表，按到达时间升序排列 */
+    /** 任务列表，按到达时间升序排列，同时到达时先输入的在前 */
     list<Task> tasks;
 };
 
@@ -91,16 +92,20 @@ Input read_input()
     cin >> algo_index;
     input.algorithm = (Algorithm)algo_index;
 
+    int last_id = -1;
     Task task;
     while (EOF != scanf("%d/%d/%d/%d/%d",
                         &task.id, &task.arrive_at, &task.duration,
                         &task.priority, &task.quantum)) {
+        assert(last_id < task.id);
+
         // Find the first task after last arrival.
         auto t = input.tasks.begin();
         const auto end = input.tasks.end();
         while (t != end && t->arrive_at <= task.arrive_at) {
             t++;
         }
+
         // Insert
         input.tasks.insert(t, Task(task));
     }
@@ -131,7 +136,7 @@ void assert_sorted(const list<Task> &tasks)
 void not_implemented()
 {
     cerr << "Not implemented." << endl;
-    assert(false);
+    raise(SIGFPE);
 }
 
 Schedule first_come_first_service(const list<Task> &tasks)
@@ -167,13 +172,13 @@ Schedule shortest_job_first(const list<Task> &tasks)
     list<Task> ready_tasks;
 
     while (first_future_task != tasks.end() || !ready_tasks.empty()) {
-        // 1. Update `tasks_ready` and `first_future_task`
+        // 1. Update `ready_tasks` and `first_future_task`
         while (first_future_task != tasks.end() && first_future_task->arrive_at <= clock) {
             ready_tasks.push_back(*first_future_task);
             first_future_task++;
         }
 
-        // 2. Find the shortest task in `tasks_ready`
+        // 2. Find the shortest task in `ready_tasks`
         auto shortest_task = ready_tasks.front();
         for (auto &&t : ready_tasks) {
             if (shortest_task.duration > t.duration) {
@@ -194,6 +199,23 @@ Schedule shortest_job_first(const list<Task> &tasks)
     return schedule;
 }
 
+/**
+ * @brief Move arrived tasks to `ready_tasks`
+ * If nothing arrives, you should advance the clock to next arrival, then try again.
+ *
+ * @param ready_tasks 保证执行后时不空，除非`first_future_task == end`
+ * @param first_future_task
+ * @param end `first_future_task`所在队列的结尾
+ * @param clock
+ */
+void handle_tasks_arrival(list<TaskRuntime> &ready_tasks, list<Task>::const_iterator &first_future_task, const list<Task>::const_iterator &end, int clock)
+{
+    while (first_future_task != end && first_future_task->arrive_at <= clock) {
+        ready_tasks.push_back(TaskRuntime(*first_future_task));
+        first_future_task++;
+    }
+}
+
 Schedule shortest_remaining_time_first(const list<Task> &tasks)
 {
     Schedule schedule;
@@ -204,13 +226,10 @@ Schedule shortest_remaining_time_first(const list<Task> &tasks)
     list<TaskRuntime> ready_tasks;
 
     while (first_future_task != tasks.end() || !ready_tasks.empty()) {
-        // 1. Update `tasks_ready` and `first_future_task`
-        while (first_future_task != tasks.end() && first_future_task->arrive_at <= clock) {
-            ready_tasks.push_back(TaskRuntime(*first_future_task));
-            first_future_task++;
-        }
+        // 1. Update `ready_tasks` and `first_future_task`
+        handle_tasks_arrival(ready_tasks, first_future_task, tasks.end(), clock);
 
-        // 2. Find the shortest task in `tasks_ready`
+        // 2. Find the shortest task in `ready_tasks`
         auto shortest_task = ready_tasks.front();
         for (auto &&t : ready_tasks) {
             if (shortest_task.duration_left > t.duration_left) {
@@ -220,7 +239,7 @@ Schedule shortest_remaining_time_first(const list<Task> &tasks)
         ready_tasks.remove(shortest_task);
 
         // 3. Run it
-        // 3.1 Calculate how long will it runs.
+        // 3.1 Calculate how long it will run.
         int duration = shortest_task.duration_left;
         if (first_future_task != tasks.end()) {
             duration = min(duration, first_future_task->arrive_at - clock);
@@ -236,7 +255,7 @@ Schedule shortest_remaining_time_first(const list<Task> &tasks)
                 clock + duration,
                 shortest_task.priority));
         }
-        // 3.3 Let time flies.
+        // 3.3 Let time fly.
         shortest_task.duration_left -= duration;
         clock += duration;
 
@@ -251,8 +270,49 @@ Schedule shortest_remaining_time_first(const list<Task> &tasks)
 
 Schedule round_robin(const list<Task> &tasks)
 {
-    not_implemented();
-    return Schedule();
+    Schedule schedule;
+
+    int clock = 0;
+    auto first_future_task = tasks.begin();
+    // arrived but never executed tasks
+    list<TaskRuntime> ready_tasks;
+    // executed but not completed tasks
+    list<TaskRuntime> ready_again_tasks;
+
+    while (first_future_task != tasks.end() || !ready_tasks.empty() || !ready_again_tasks.empty()) {
+        // 1. Update `ready_tasks` and `first_future_task`
+        handle_tasks_arrival(ready_tasks, first_future_task, tasks.end(), clock);
+        // If nothing arrives and nothing ready, skip to next arrival and try again.
+        if (first_future_task != tasks.end() && ready_tasks.empty() && ready_again_tasks.empty()) {
+            clock = first_future_task->arrive_at;
+            handle_tasks_arrival(ready_tasks, first_future_task, tasks.end(), clock);
+        }
+
+        // 2. Get next task in `ready_tasks` or `ready_again_tasks`
+        auto &current_ready_tasks = ready_tasks.empty() ? ready_again_tasks : ready_tasks;
+        auto next_task = current_ready_tasks.front();
+        current_ready_tasks.pop_front();
+
+        // 3. Run it
+        // 3.1 Calculate how long it will run.
+        int duration = min(next_task.duration_left, next_task.quantum);
+        // 3.2 Update the schedule
+        schedule.push_back(ScheduleRecord(
+            next_task.id,
+            clock,
+            clock + duration,
+            next_task.priority));
+        // 3.3 Let time fly.
+        next_task.duration_left -= duration;
+        clock += duration;
+
+        // 4. Push the task to `ready_again_tasks` if not completed
+        if (next_task.duration_left > 0) {
+            ready_again_tasks.push_back(next_task);
+        }
+    }
+
+    return schedule;
 }
 
 Schedule dynamic_priority(const list<Task> &tasks)
