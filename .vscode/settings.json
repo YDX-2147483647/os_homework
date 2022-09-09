@@ -1,0 +1,10 @@
+{
+    "files.associations": {
+        "web.config": "xml",
+        "vector": "cpp",
+        "iostream": "cpp",
+        "xlocale": "cpp",
+        "xlocnum": "cpp",
+        "list": "cpp"
+    }
+}
