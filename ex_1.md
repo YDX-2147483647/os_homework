@@ -78,3 +78,67 @@
 ```
 
 共十个任务。（`id`，`priority`不一定严格一致）
+
+```mermaid
+gantt
+dateFormat SSS
+axisFormat %L ms
+
+section 1
+1: milestone, 001, 0
+1: 001, 004
+1: 030, 032
+
+section 2
+2: milestone, 002, 0
+2: 004, 006
+
+section 3
+3: milestone, 002, 0
+3: 006, 009
+3: 032, 035
+3: 056, 059
+
+section 4
+4: milestone, 003, 0
+4: 009, 012
+4: 035, 038
+4: 059, 062
+
+section 5
+5: milestone, 006, 0
+5: 012, 015
+5: 038, 041
+5: 062, 065
+5: 076, 077
+
+section 6
+6: milestone, 006, 0
+6: 015, 018
+6: 041, 044
+6: 065, 068
+
+section 7
+7: milestone, 006, 0
+7: 018, 021
+7: 044, 047
+7: 068, 071
+
+section 8
+8: milestone, 007, 0
+8: 021, 024
+8: 047, 050
+8: 071, 073
+
+section 9
+9: milestone, 009, 0
+9: 024, 027
+9: 050, 053
+
+section 10
+10: milestone, 009, 0
+10: 027, 030
+10: 053, 056
+10: 073, 076
+10: 077, 078
+```
