@@ -32,6 +32,11 @@ struct Task {
     int priority;
     /** 时间片 */
     int quantum;
+
+    bool operator==(const Task &other)
+    {
+        return this->id == other.id;
+    }
 };
 
 /** 单条执行记录 */
@@ -135,23 +140,56 @@ Schedule first_come_first_service(const list<Task> &tasks)
 Schedule shortest_job_first(const list<Task> &tasks)
 {
     Schedule schedule;
-    // todo
+
+    int clock = 0;
+    auto first_future_task = tasks.begin();
+    // arrived but not done tasks
+    list<Task> ready_tasks;
+
+    while (first_future_task != tasks.end() || !ready_tasks.empty()) {
+        // 1. Update `tasks_ready` and `first_future_task`
+        while (first_future_task != tasks.end() && first_future_task->arrive_at <= clock) {
+            ready_tasks.push_back(*first_future_task);
+            first_future_task++;
+        }
+
+        // 2. Find the shortest task in `tasks_ready`
+        auto shortest_task = ready_tasks.front();
+        for (auto &&t : ready_tasks) {
+            if (shortest_task.duration > t.duration) {
+                shortest_task = t;
+            }
+        }
+        ready_tasks.remove(shortest_task);
+
+        // 3. Run it
+        schedule.push_back(ScheduleRecord(
+            shortest_task.id,
+            clock,
+            clock + shortest_task.duration,
+            shortest_task.priority));
+        clock += shortest_task.duration;
+    }
+
     return schedule;
 }
 
 Schedule shortest_remaining_time_first(const list<Task> &tasks)
 {
     not_implemented();
+    return Schedule();
 }
 
 Schedule round_robin(const list<Task> &tasks)
 {
     not_implemented();
+    return Schedule();
 }
 
 Schedule dynamic_priority(const list<Task> &tasks)
 {
     not_implemented();
+    return Schedule();
 }
 
 int main()
