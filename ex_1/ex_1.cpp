@@ -280,7 +280,7 @@ Schedule round_robin(const list<Task> &tasks)
 
     int clock = 0;
     auto first_future_task = tasks.begin();
-    // arrived but never executed tasks
+    // arrived but not done tasks
     list<TaskRuntime> ready_tasks;
 
     // 0. Update `ready_tasks` and `first_future_task`
@@ -317,8 +317,53 @@ Schedule round_robin(const list<Task> &tasks)
 
 Schedule dynamic_priority(const list<Task> &tasks)
 {
-    not_implemented();
-    return Schedule();
+    Schedule schedule;
+
+    int clock = 0;
+    auto first_future_task = tasks.begin();
+    // arrived but not done tasks
+    list<TaskRuntime> ready_tasks;
+
+    while (first_future_task != tasks.end() || !ready_tasks.empty()) {
+        // 1. Update `ready_tasks` and `first_future_task`
+        handle_tasks_arrival(ready_tasks, first_future_task, tasks.end(), clock);
+
+        // 2. Get next task from `ready_tasks`
+        auto next_task = ready_tasks.front();
+        for (auto &&t : ready_tasks) {
+            if (t.priority < next_task.priority ||
+                (t.priority == next_task.priority && t.id < next_task.id)) {
+                next_task = t;
+            }
+        }
+        ready_tasks.remove(next_task);
+
+        // 3. Update tasks' priorities
+        next_task.priority += 3;
+        for (auto &&t : ready_tasks) {
+            t.priority -= 1;
+        }
+
+        // 4. Run it
+        // 4.1 Calculate how long it will run.
+        int duration = min(next_task.duration_left, next_task.quantum);
+        // 4.2 Update the schedule
+        schedule.push_back(ScheduleRecord(
+            next_task.id,
+            clock,
+            clock + duration,
+            next_task.priority));
+        // 4.3 Let time fly.
+        next_task.duration_left -= duration;
+        clock += duration;
+
+        // 5. Push the task back to `ready_tasks` if not completed
+        if (next_task.duration_left > 0) {
+            ready_tasks.push_back(next_task);
+        }
+    }
+
+    return schedule;
 }
 
 int main()
