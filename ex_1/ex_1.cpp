@@ -276,20 +276,16 @@ Schedule round_robin(const list<Task> &tasks)
     auto first_future_task = tasks.begin();
     // arrived but never executed tasks
     list<TaskRuntime> ready_tasks;
-    // executed but not completed tasks
-    list<TaskRuntime> ready_again_tasks;
 
-    while (first_future_task != tasks.end() || !ready_tasks.empty() || !ready_again_tasks.empty()) {
-        // 1. Update `ready_tasks` and `first_future_task`
+    // 0. Update `ready_tasks` and `first_future_task`
+    // If nothing arrives and nothing ready, skip to next arrival and try again.
+    if (first_future_task != tasks.end() && ready_tasks.empty()) {
+        clock = first_future_task->arrive_at;
         handle_tasks_arrival(ready_tasks, first_future_task, tasks.end(), clock);
-        // If nothing arrives and nothing ready, skip to next arrival and try again.
-        if (first_future_task != tasks.end() && ready_tasks.empty() && ready_again_tasks.empty()) {
-            clock = first_future_task->arrive_at;
-            handle_tasks_arrival(ready_tasks, first_future_task, tasks.end(), clock);
-        }
-
-        // 2. Get next task in `ready_tasks` or `ready_again_tasks`
-        auto &current_ready_tasks = ready_tasks.empty() ? ready_again_tasks : ready_tasks;
+    }
+    while (first_future_task != tasks.end() || !ready_tasks.empty()) {
+        // 2. Get next task in `ready_tasks`
+        auto &current_ready_tasks = ready_tasks;
         auto next_task = current_ready_tasks.front();
         current_ready_tasks.pop_front();
 
@@ -306,9 +302,17 @@ Schedule round_robin(const list<Task> &tasks)
         next_task.duration_left -= duration;
         clock += duration;
 
-        // 4. Push the task to `ready_again_tasks` if not completed
+        // 0. Update `ready_tasks` and `first_future_task`
+        handle_tasks_arrival(ready_tasks, first_future_task, tasks.end(), clock);
+        // If nothing arrives and nothing ready, skip to next arrival and try again.
+        if (first_future_task != tasks.end() && ready_tasks.empty()) {
+            clock = first_future_task->arrive_at;
+            handle_tasks_arrival(ready_tasks, first_future_task, tasks.end(), clock);
+        }
+
+        // 1. Push the task back to `ready_tasks` if not completed
         if (next_task.duration_left > 0) {
-            ready_again_tasks.push_back(next_task);
+            ready_tasks.push_back(next_task);
         }
     }
 
