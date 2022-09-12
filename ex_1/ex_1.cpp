@@ -201,18 +201,24 @@ Schedule shortest_job_first(const list<Task> &tasks)
 
 /**
  * @brief Move arrived tasks to `ready_tasks`
- * If nothing arrives, you should advance the clock to next arrival, then try again.
+ * If nothing arrives, the clock will be advanced to next arrival, then try again.
  *
  * @param ready_tasks 保证执行后时不空，除非`first_future_task == end`
- * @param first_future_task
+ * @param first_future_task (can be changed)
  * @param end `first_future_task`所在队列的结尾
- * @param clock
+ * @param clock (can be changed)
  */
-void handle_tasks_arrival(list<TaskRuntime> &ready_tasks, list<Task>::const_iterator &first_future_task, const list<Task>::const_iterator &end, int clock)
+void handle_tasks_arrival(list<TaskRuntime> &ready_tasks, list<Task>::const_iterator &first_future_task, const list<Task>::const_iterator &end, int &clock)
 {
     while (first_future_task != end && first_future_task->arrive_at <= clock) {
         ready_tasks.push_back(TaskRuntime(*first_future_task));
         first_future_task++;
+    }
+
+    // If nothing arrives and nothing ready, skip to next arrival and try again.
+    if (first_future_task != end && ready_tasks.empty()) {
+        clock = first_future_task->arrive_at;
+        handle_tasks_arrival(ready_tasks, first_future_task, end, clock);
     }
 }
 
@@ -278,16 +284,11 @@ Schedule round_robin(const list<Task> &tasks)
     list<TaskRuntime> ready_tasks;
 
     // 0. Update `ready_tasks` and `first_future_task`
-    // If nothing arrives and nothing ready, skip to next arrival and try again.
-    if (first_future_task != tasks.end() && ready_tasks.empty()) {
-        clock = first_future_task->arrive_at;
-        handle_tasks_arrival(ready_tasks, first_future_task, tasks.end(), clock);
-    }
+    handle_tasks_arrival(ready_tasks, first_future_task, tasks.end(), clock);
     while (first_future_task != tasks.end() || !ready_tasks.empty()) {
         // 2. Get next task in `ready_tasks`
-        auto &current_ready_tasks = ready_tasks;
-        auto next_task = current_ready_tasks.front();
-        current_ready_tasks.pop_front();
+        auto next_task = ready_tasks.front();
+        ready_tasks.pop_front();
 
         // 3. Run it
         // 3.1 Calculate how long it will run.
@@ -304,11 +305,6 @@ Schedule round_robin(const list<Task> &tasks)
 
         // 0. Update `ready_tasks` and `first_future_task`
         handle_tasks_arrival(ready_tasks, first_future_task, tasks.end(), clock);
-        // If nothing arrives and nothing ready, skip to next arrival and try again.
-        if (first_future_task != tasks.end() && ready_tasks.empty()) {
-            clock = first_future_task->arrive_at;
-            handle_tasks_arrival(ready_tasks, first_future_task, tasks.end(), clock);
-        }
 
         // 1. Push the task back to `ready_tasks` if not completed
         if (next_task.duration_left > 0) {
