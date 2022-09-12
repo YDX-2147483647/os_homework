@@ -324,9 +324,22 @@ Schedule dynamic_priority(const list<Task> &tasks)
     // arrived but not done tasks
     list<TaskRuntime> ready_tasks;
 
-    while (first_future_task != tasks.end() || !ready_tasks.empty()) {
+    const auto end = tasks.end();
+    while (first_future_task != end || !ready_tasks.empty()) {
         // 1. Update `ready_tasks` and `first_future_task`
-        handle_tasks_arrival(ready_tasks, first_future_task, tasks.end(), clock);
+        while (first_future_task != end && first_future_task->arrive_at <= clock) {
+            auto new_task = TaskRuntime(*first_future_task);
+            if (first_future_task->arrive_at < clock) {
+                new_task.priority = max(new_task.priority, 0);
+            }
+            ready_tasks.push_back(new_task);
+            first_future_task++;
+        }
+        // If nothing arrives and nothing ready, skip to next arrival and try again.
+        if (first_future_task != end && ready_tasks.empty()) {
+            clock = first_future_task->arrive_at;
+            continue;
+        }
 
         // 2. Get next task from `ready_tasks`
         auto next_task = ready_tasks.front();
@@ -338,13 +351,12 @@ Schedule dynamic_priority(const list<Task> &tasks)
         }
         ready_tasks.remove(next_task);
 
-        // 3. Update tasks' priorities
+        // 4. Run it
+        // 4.0 Update tasks' priorities
         next_task.priority += 3;
         for (auto &&t : ready_tasks) {
-            t.priority -= 1;
+            t.priority = max(t.priority - 1, 0);
         }
-
-        // 4. Run it
         // 4.1 Calculate how long it will run.
         int duration = min(next_task.duration_left, next_task.quantum);
         // 4.2 Update the schedule

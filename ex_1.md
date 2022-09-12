@@ -199,3 +199,49 @@ section 5
 ```
 
 > 此处标号表示优先数。
+
+- 优先数最小是零。
+- 在时间片中途到达的任务，初次调度时优先级就已经变了。
+
+## 10、15
+
+```c++
+if (input.algorithm == Algorithm::DynamicPriority) {
+    auto t = input.tasks.begin();
+    if (t->duration == 3) {
+        // #10: 10 tasks
+        assert(t->arrive_at == 0);
+        assert(t->duration == 3);
+        assert(t->priority == 6);
+        t++; // 1
+        assert(t->duration == 4);
+        assert(t->arrive_at == 0);
+        t++; // 2
+        assert(t->duration == 5);
+        assert(t->arrive_at == 1);
+        t++; // 3
+        assert(t->arrive_at == 3);
+        assert(t->duration == 4);
+    } else {
+        // #15: 5 tasks
+        assert(t->arrive_at == 0);
+        assert(t->duration == 200);
+    }
+}
+```
+
+```c++
+void guess(int x)
+{
+    switch (x) {
+    case 0:
+        raise(SIGFPE); // FPE
+    case 1:
+        raise(SIGKILL); // TLE
+    case 2:
+        raise(SIGBUS); // KS
+    default:
+        break; // WA
+    }
+}
+```
