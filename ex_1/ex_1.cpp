@@ -330,7 +330,7 @@ Schedule dynamic_priority(const list<Task> &tasks)
         while (first_future_task != end && first_future_task->arrive_at <= clock) {
             auto new_task = TaskRuntime(*first_future_task);
             if (first_future_task->arrive_at < clock) {
-                new_task.priority = max(new_task.priority, 0);
+                new_task.priority = max(new_task.priority - 1, 0);
             }
             ready_tasks.push_back(new_task);
             first_future_task++;
