@@ -4,6 +4,7 @@ Accepted except #7.
 Python 2
 """
 
+
 class Thread:
     id, arrive, cost, priority, quantum, done = 0, 0, 0, 0, 0, False
 
@@ -20,6 +21,8 @@ def inputThread():
     while True:
         try:
             threads.append(Thread(raw_input().split("/")))
+            # For python 3
+            # threads.append(Thread(input().split("/")))
             num += 1
         except:
             break
@@ -28,6 +31,9 @@ def inputThread():
 
 def output(logidx, tid, tstart, tend, tpriority):
     print str(logidx) + '/' + str(tid) + '/' + str(tstart) + '/' + str(tend) + '/' + str(tpriority)
+    # For python 3
+    # print(str(logidx) + '/' + str(tid) + '/' + str(tstart) +
+    #       '/' + str(tend) + '/' + str(tpriority))
 
 
 def cmp_arrive_id(x, y):
@@ -39,8 +45,10 @@ def cmp_arrive_id(x, y):
 def dp():
     threads, num = inputThread()
     threads.sort(cmp_arrive_id)
+    # For python 3
+    # threads.sort(key=lambda x: x.arrive)
     time, last, done_count, idx = 0, 0, 0, 1
-    
+
     while done_count < num:
         i = 0
         while i < num and threads[i].arrive <= time:
@@ -79,7 +87,7 @@ def dp():
         # 4.3 Let time fly.
         time += duration
         threads[arg_min].cost -= duration
-        
+
         # Count
         if threads[arg_min].cost == 0:
             done_count += 1
@@ -90,4 +98,6 @@ def dp():
 if __name__ == '__main__':
     method = input()
     assert method == 5
+    # For python 3
+    # assert int(method) == 5
     dp()
