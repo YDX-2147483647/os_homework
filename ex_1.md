@@ -61,6 +61,8 @@
 
 ## 测试用例
 
+> Gantt 图中标号表示优先数。
+
 ### 9
 
 ```
@@ -79,70 +81,68 @@
 
 共十个任务。（`id`，`priority`不一定严格一致）
 
-下面是错误的调度计划。
-
 ```mermaid
 gantt
 dateFormat SSS
 axisFormat %L ms
 
 section 1
-1: milestone, 001, 0
-1: 001, 004
-1: 030, 032
+0: milestone, 001, 0
+0: 001, 004
+0: 012, 014
 
 section 2
-2: milestone, 002, 0
-2: 004, 006
+0: milestone, 002, 0
+0: 004, 006
 
 section 3
-3: milestone, 002, 0
-3: 006, 009
-3: 032, 035
-3: 056, 059
+0: milestone, 002, 0
+0: 006, 009
+0: 032, 035
+0: 056, 059
 
 section 4
-4: milestone, 003, 0
-4: 009, 012
-4: 035, 038
-4: 059, 062
+0: milestone, 003, 0
+0: 009, 012
+0: 035, 038
+0: 059, 062
 
 section 5
-5: milestone, 006, 0
-5: 012, 015
-5: 038, 041
-5: 062, 065
-5: 076, 077
+0: milestone, 006, 0
+0: 014, 017
+0: 038, 041
+0: 062, 065
+0: 076, 077
 
 section 6
-6: milestone, 006, 0
-6: 015, 018
-6: 041, 044
-6: 065, 068
+0: milestone, 006, 0
+0: 017, 020
+0: 041, 044
+0: 065, 068
 
 section 7
-7: milestone, 006, 0
-7: 018, 021
-7: 044, 047
-7: 068, 071
+0: milestone, 006, 0
+0: 020, 023
+0: 044, 047
+0: 068, 071
 
 section 8
-8: milestone, 007, 0
-8: 021, 024
-8: 047, 050
-8: 071, 073
+0: milestone, 007, 0
+0: 023, 026
+0: 047, 050
+0: 071, 073
 
 section 9
-9: milestone, 009, 0
-9: 024, 027
-9: 050, 053
+0: milestone, 009, 0
+0: 026, 029
+0: 050, 053
 
 section 10
-10: milestone, 009, 0
-10: 027, 030
-10: 053, 056
-10: 073, 076
-10: 077, 078
+0: milestone, 009, 0
+0: 029, 032
+0: 053, 056
+0: 073, 076
+0: 077, 078
 ```
 
 根据测试用例，“进程执行完一个时间片进入就绪队列时，其优先级低于首次进入就绪队列的进程”中的优先级只是瞬时的。换句话说，一旦进程进入了队列，后面新来的进程就不再可能排到它前面，即使从未运行过也不行。
@@ -198,50 +198,47 @@ section 5
 6: 012, 014
 ```
 
-> 此处标号表示优先数。
-
 - 优先数最小是零。
 - 在时间片中途到达的任务，初次调度时优先级就已经变了。
 
-## 10、15
+## 15
 
-```c++
-if (input.algorithm == Algorithm::DynamicPriority) {
-    auto t = input.tasks.begin();
-    if (t->duration == 3) {
-        // #10: 10 tasks
-        assert(t->arrive_at == 0);
-        assert(t->duration == 3);
-        assert(t->priority == 6);
-        t++; // 1
-        assert(t->duration == 4);
-        assert(t->arrive_at == 0);
-        t++; // 2
-        assert(t->duration == 5);
-        assert(t->arrive_at == 1);
-        t++; // 3
-        assert(t->arrive_at == 3);
-        assert(t->duration == 4);
-    } else {
-        // #15: 5 tasks
-        assert(t->arrive_at == 0);
-        assert(t->duration == 200);
-    }
-}
-```
+下面是错误的调度计划。230 ms 起进程1、4的运行顺序不对。
 
-```c++
-void guess(int x)
-{
-    switch (x) {
-    case 0:
-        raise(SIGFPE); // FPE
-    case 1:
-        raise(SIGKILL); // TLE
-    case 2:
-        raise(SIGBUS); // KS
-    default:
-        break; // WA
-    }
-}
+```mermaid
+gantt
+dateFormat SSS
+axisFormat %L ms
+
+section 1
+29: milestone, 200, 0
+31: 230, 270
+31: 390, 430
+32: 510, 530
+
+section 2
+26: milestone, 100, 0
+28: 120, 160
+30: 190, 230
+31: 310, 350
+
+section 3
+27: milestone, 150, 0
+29: 160, 190
+
+section 4
+30: milestone, 000, 0
+33: 000, 040
+30: 270, 310
+30: 430, 470
+31: 530, 570
+33: 580, 620
+
+section 5
+28: milestone, 040, 0
+31: 040, 080
+34: 080, 120
+31: 350, 390
+32: 470, 510
+33: 570, 580
 ```
