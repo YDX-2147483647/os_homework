@@ -58,6 +58,10 @@ struct TaskRuntime {
     {
         return this->id == other.id;
     }
+    bool operator!=(const TaskRuntime &other)
+    {
+        return !this->operator==(other);
+    }
 };
 
 /** 单条执行记录 */
@@ -321,7 +325,7 @@ Schedule dynamic_priority(const list<Task> &tasks)
 
     int clock = 0;
     auto first_future_task = tasks.begin();
-    // arrived but not done tasks
+    // arrived but not done tasks, always sorted by arrival
     list<TaskRuntime> ready_tasks;
 
     const auto end = tasks.end();
@@ -342,36 +346,38 @@ Schedule dynamic_priority(const list<Task> &tasks)
         }
 
         // 2. Get next task from `ready_tasks`
-        auto next_task = ready_tasks.front();
-        for (auto &&t : ready_tasks) {
-            if (t.priority < next_task.priority ||
-                (t.priority == next_task.priority && t.id < next_task.id)) {
+        auto next_task = ready_tasks.begin();
+        const auto ready_tasks_end = ready_tasks.end();
+        for (auto t = ready_tasks.begin(); t != ready_tasks_end; ++t) {
+            if (t->priority < next_task->priority) {
                 next_task = t;
             }
         }
-        ready_tasks.remove(next_task);
+        // We won't remove it until it's done this time.
 
         // 4. Run it
         // 4.0 Update tasks' priorities
-        next_task.priority += 3;
+        next_task->priority += 3;
         for (auto &&t : ready_tasks) {
-            t.priority = max(t.priority - 1, 0);
+            if (t != *next_task) {
+                t.priority = max(t.priority - 1, 0);
+            }
         }
         // 4.1 Calculate how long it will run.
-        int duration = min(next_task.duration_left, next_task.quantum);
+        int duration = min(next_task->duration_left, next_task->quantum);
         // 4.2 Update the schedule
         schedule.push_back(ScheduleRecord(
-            next_task.id,
+            next_task->id,
             clock,
             clock + duration,
-            next_task.priority));
+            next_task->priority));
         // 4.3 Let time fly.
-        next_task.duration_left -= duration;
+        next_task->duration_left -= duration;
         clock += duration;
 
-        // 5. Push the task back to `ready_tasks` if not completed
-        if (next_task.duration_left > 0) {
-            ready_tasks.push_back(next_task);
+        // 5. Remove it if it completes.
+        if (next_task->duration_left == 0) {
+            ready_tasks.erase(next_task);
         }
     }
 
