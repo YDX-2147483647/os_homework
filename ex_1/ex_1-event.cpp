@@ -265,18 +265,6 @@ protected:
         return this->running_task == this->working_tasks.end();
     }
 
-    virtual void on_arrive(Event event, Plan &plan) = 0;
-    virtual void on_complete(Event event, Plan &plan) = 0;
-    virtual void on_interrupt(Event event, Plan &plan) = 0;
-};
-
-class SchedulerFCFS : public Scheduler
-{
-public:
-    SchedulerFCFS(const list<Task> &tasks)
-        : Scheduler(tasks) {}
-
-private:
     virtual void on_arrive(Event event, Plan &plan)
     {
         auto task = this->get_task(event.task_id);
@@ -286,6 +274,7 @@ private:
             this->on_interrupt(event, plan);
         }
     }
+
     virtual void on_complete(Event event, Plan &plan)
     {
         this->working_tasks.erase(this->running_task);
@@ -293,6 +282,7 @@ private:
 
         this->on_interrupt(event, plan);
     }
+
     virtual void on_interrupt(Event event, Plan &plan)
     {
         if (this->working_tasks.empty()) {
@@ -305,6 +295,37 @@ private:
         plan.push_back(Record(task->id, event.at, end_at, task->priority));
 
         this->register_event(Event(EventType::Complete, end_at, NOT_APPLICABLE));
+    };
+};
+
+class SchedulerFCFS : public Scheduler
+{
+public:
+    SchedulerFCFS(const list<Task> &tasks) : Scheduler(tasks) {}
+};
+
+class SchedulerSJF : public Scheduler
+{
+public:
+    SchedulerSJF(const list<Task> &tasks) : Scheduler(tasks) {}
+
+protected:
+    virtual void on_arrive(Event event, Plan &plan)
+    {
+        auto task = this->get_task(event.task_id);
+
+        // We sort `working_tasks` by `duration_left`
+        auto where = this->working_tasks.begin();
+        const auto end = this->working_tasks.end();
+        while (where != end && where->duration_left <= task.duration_left) {
+            ++where;
+        }
+
+        this->working_tasks.insert(where, task);
+
+        if (this->nothing_running()) {
+            this->on_interrupt(event, plan);
+        }
     }
 };
 
@@ -317,6 +338,9 @@ int main()
     switch (input.algorithm) {
     case Algorithm::FirstComeFirstService:
         scheduler = new SchedulerFCFS(input.tasks);
+        break;
+    case Algorithm::ShortestJobFirst:
+        scheduler = new SchedulerSJF(input.tasks);
         break;
 
     default:
