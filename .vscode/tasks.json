@@ -25,6 +25,21 @@
 				"isDefault": true
 			},
 			"detail": "编译器: C:/mingw-w64/x86_64-8.1.0-release-posix-seh-rt_v6-rev0/mingw64/bin/g++.exe"
+		},
+		{
+			"type": "shell",
+			"label": "Judger: Check exercise 1",
+			"command": "cargo",
+			"args": [
+				"run",
+				"../ex_1/ex_1-event.exe",
+				"../ex_1/ex_1.exe",
+				"../ex_1/test_cases/"
+			],
+			"options": {
+				"cwd": "judger/"
+			},
+			"group": "test"
 		}
 	]
 }

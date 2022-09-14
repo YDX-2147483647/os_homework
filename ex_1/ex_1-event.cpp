@@ -156,9 +156,18 @@ enum EventType {
     Complete,
 };
 
+#define NOT_APPLICABLE -1
+
 struct Event {
     EventType type;
+    int at;
+    /** Only for arrive events, `NOT_APPLICABLE` otherwise */
+    int task_id;
+
+    Event(EventType type, int at, int task_id) : type(type), at(at), task_id(task_id) {}
 };
+
+using TaskRuntimeIterator = list<TaskRuntime>::iterator;
 
 class Scheduler
 {
@@ -166,10 +175,10 @@ protected:
     const list<Task> &tasks;
 
     /** ready and running tasks */
-    list<Task> working_tasks;
+    list<TaskRuntime> working_tasks;
 
     /** the running task in `working tasks`, `end` if nothing is running */
-    list<Task>::iterator running_task;
+    TaskRuntimeIterator running_task;
 
     /** events in the future (always ascending sorted) */
     list<Event> events;
@@ -177,7 +186,7 @@ protected:
 public:
     Scheduler(const list<Task> &tasks) : tasks(tasks)
     {
-        this->working_tasks = list<Task>();
+        this->working_tasks = list<TaskRuntime>();
         this->running_task = this->working_tasks.end();
 
         this->events = list<Event>();
@@ -194,13 +203,13 @@ public:
 
             switch (event.type) {
             case EventType::Arrive:
-                this->on_arrive(plan);
+                this->on_arrive(event, plan);
                 break;
             case EventType::Complete:
-                this->on_complete(plan);
+                this->on_complete(event, plan);
                 break;
             case EventType::Interrupt:
-                this->on_interrupt(plan);
+                this->on_interrupt(event, plan);
                 break;
             }
         }
@@ -209,12 +218,94 @@ public:
     }
 
 protected:
-    /** Register tasks' arrivals */
-    void register_arrivals();
+    /**
+     * Get the task in `tasks` by id and convert to `TaskRuntime`
+     */
+    TaskRuntime get_task(int id)
+    {
+        auto task = this->tasks.begin();
 
-    void on_arrive(Plan &plan);
-    void on_complete(Plan &plan);
-    void on_interrupt(Plan &plan);
+        const auto end = this->tasks.end();
+        while (task != end && task->id != id) {
+            task++;
+        }
+        assert(task != end);
+        return TaskRuntime(*task);
+    }
+
+    void register_event(Event event)
+    {
+        auto e = this->events.begin();
+        const auto end = this->events.end();
+        while (e != end && e->at <= event.at) {
+            e++;
+        }
+
+        this->events.insert(e, event);
+    }
+
+    /**
+     * @brief Register tasks' arrivals
+     *
+     * Default implementation: Push tasks by the same order as `this->tasks`.
+     */
+    virtual void register_arrivals()
+    {
+        for (auto &&t : this->tasks) {
+            // We push back here in favor of using O(n) `register event`.
+            this->events.push_back(Event(
+                EventType::Arrive,
+                t.arrive_at,
+                t.id));
+        }
+    };
+
+    bool nothing_running()
+    {
+        return this->running_task == this->working_tasks.end();
+    }
+
+    virtual void on_arrive(Event event, Plan &plan) = 0;
+    virtual void on_complete(Event event, Plan &plan) = 0;
+    virtual void on_interrupt(Event event, Plan &plan) = 0;
+};
+
+class SchedulerFCFS : public Scheduler
+{
+public:
+    SchedulerFCFS(const list<Task> &tasks)
+        : Scheduler(tasks) {}
+
+private:
+    virtual void on_arrive(Event event, Plan &plan)
+    {
+        auto task = this->get_task(event.task_id);
+        this->working_tasks.push_back(task);
+
+        if (this->nothing_running()) {
+            this->on_interrupt(event, plan);
+        }
+    }
+    virtual void on_complete(Event event, Plan &plan)
+    {
+        this->working_tasks.erase(this->running_task);
+        this->running_task = this->working_tasks.end();
+
+        this->on_interrupt(event, plan);
+    }
+    virtual void on_interrupt(Event event, Plan &plan)
+    {
+        if (this->working_tasks.empty()) {
+            return;
+        }
+
+        auto task = this->working_tasks.begin();
+        this->running_task = task;
+        auto end_at = event.at + task->duration_left;
+        plan.push_back(Record(task->id, event.at, end_at, task->priority));
+
+        this->register_event(Event(EventType::Complete, end_at, NOT_APPLICABLE));
+    }
 };
 
 int main()
@@ -222,9 +313,19 @@ int main()
     const auto input = read_input();
     assert_sorted(input.tasks);
 
-    auto scheduler = Scheduler(input.tasks);
-    const auto plan = scheduler.run();
-    print_plan(plan);
+    Scheduler *scheduler = NULL;
+    switch (input.algorithm) {
+    case Algorithm::FirstComeFirstService:
+        scheduler = new SchedulerFCFS(input.tasks);
+        break;
+
+    default:
+        not_implemented();
+        break;
+    }
+
+    print_plan(scheduler->run());
+    delete scheduler;
 
     return 0;
 }
