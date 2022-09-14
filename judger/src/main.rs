@@ -1,4 +1,4 @@
-use judger::{check, CheckResult, Config, WrongAnswerResult};
+use judger::{check, CheckResult, Config};
 use std::io::Write;
 use std::{env, process};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
@@ -25,18 +25,10 @@ fn main() {
                         writeln!(&mut stdout, "✓").unwrap();
                         stdout.reset().unwrap();
                     }
-                    CheckResult::WrongAnswer(WrongAnswerResult { your, expected }) => {
+                    CheckResult::WrongAnswer(_) => {
                         stdout.set_color(&red).unwrap();
                         writeln!(&mut stdout, "✗").unwrap();
                         stdout.reset().unwrap();
-                        
-                        print!("  your:\n");
-                        stdout.set_color(&red).unwrap();
-                        writeln!(&mut stdout, "\n{}\n", your).unwrap();
-                        stdout.reset().unwrap();
-                     
-                        print!("  expected:\n");
-                        println!("\n{}\n", expected);
                     }
                 }
             }
