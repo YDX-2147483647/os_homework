@@ -107,10 +107,13 @@ Input read_input()
                         &task.priority, &task.quantum)) {
         assert(last_id < task.id);
 
-        // Find the first task after last arrival.
+        // Find the first task after last arrival
+        // or the first task arrives in the meantime but has lower priority.
         auto t = input.tasks.begin();
         const auto end = input.tasks.end();
-        while (t != end && t->arrive_at <= task.arrive_at) {
+        while (t != end &&
+               (t->arrive_at < task.arrive_at ||
+                (t->arrive_at == task.arrive_at && t->priority <= task.priority))) {
             t++;
         }
 
@@ -154,6 +157,8 @@ enum EventType {
     Interrupt,
     /** running → [*] */
     Complete,
+
+    PrivateUse,
 };
 
 #define NOT_APPLICABLE -1
@@ -201,17 +206,7 @@ public:
             auto event = this->events.front();
             this->events.pop_front();
 
-            switch (event.type) {
-            case EventType::Arrive:
-                this->on_arrive(event, plan);
-                break;
-            case EventType::Complete:
-                this->on_complete(event, plan);
-                break;
-            case EventType::Interrupt:
-                this->on_interrupt(event, plan);
-                break;
-            }
+            handle_event(event, plan);
         }
 
         return plan;
@@ -233,7 +228,7 @@ protected:
         return TaskRuntime(*task);
     }
 
-    void register_event(Event event)
+    virtual void register_event(Event event)
     {
         auto e = this->events.begin();
         const auto end = this->events.end();
@@ -263,6 +258,21 @@ protected:
     bool nothing_running()
     {
         return this->running_task == this->working_tasks.end();
+    }
+
+    virtual void handle_event(Event event, Plan &plan)
+    {
+        switch (event.type) {
+        case EventType::Arrive:
+            this->on_arrive(event, plan);
+            break;
+        case EventType::Complete:
+            this->on_complete(event, plan);
+            break;
+        case EventType::Interrupt:
+            this->on_interrupt(event, plan);
+            break;
+        }
     }
 
     virtual void on_arrive(Event event, Plan &plan)
@@ -421,7 +431,7 @@ protected:
         if (!plan.empty() && this->running_task->id == plan.back().id) {
             plan.back().end_at = end_at;
         } else {
-            plan.push_back(Record(this->running_task->id, start_at, end_at, this->running_task->priority));
+            SchedulerPreemptive::record_running_task(plan, start_at, end_at);
         }
     }
 };
@@ -448,6 +458,86 @@ protected:
     }
 };
 
+/**
+ * @note
+ *
+ * Timeline:
+ *
+ * 1. A task starts running.
+ * 2. Some tasks arrive. (Their priorities -= 1)
+ * 3. The running task is interrupted.
+ * 4. Some other tasks arrives in the meantime. (Their priorites don't change)
+ * 5. We decide what to run next.
+ *
+ * Ideally, We update priorities between 3 and 4.
+ *
+ * But it's impossible: arrive events are handled before the interrupt event.
+ * In other words, 4 will happen before 3. Therefore, we introduce a new event to
+ * increase priorities.
+ */
+class SchedulerDynamicPriority : public SchedulerPreemptive
+{
+public:
+    SchedulerDynamicPriority(const list<Task> &tasks) : SchedulerPreemptive(tasks) {}
+
+protected:
+    virtual TaskRuntimeIterator next_task_to_run()
+    {
+        auto task = this->working_tasks.begin();
+
+        const auto end = this->working_tasks.end();
+        for (auto t = this->working_tasks.begin(); t != end; ++t) {
+            if (t->priority < task->priority) {
+                task = t;
+            }
+        }
+
+        return task;
+    }
+
+    virtual int can_run_for(int now)
+    {
+        return min(this->running_task->duration_left, this->running_task->quantum);
+    }
+
+    /** Decrease the `running_task`'s priority then record it */
+    virtual void record_running_task(Plan &plan, int start_at, int end_at)
+    {
+        this->running_task->priority += 3;
+
+        SchedulerPreemptive::record_running_task(plan, start_at, end_at);
+    }
+
+    virtual void register_event(Event event)
+    {
+        if (event.type == EventType::Complete || event.type == EventType::Interrupt) {
+            auto e = this->events.begin();
+            const auto end = this->events.end();
+            while (e != end && e->at < event.at) {
+                e++;
+            }
+
+            this->events.insert(e, Event(EventType::PrivateUse, event.at, NOT_APPLICABLE));
+        }
+
+        SchedulerPreemptive::register_event(event);
+    }
+
+    virtual void handle_event(Event event, Plan &plan)
+    {
+        if (event.type == EventType::PrivateUse) {
+            // Increase ready tasks' priorites
+            for (auto &&t : this->working_tasks) {
+                if (t != *this->running_task) {
+                    t.priority = max(t.priority - 1, 0);
+                }
+            }
+        } else {
+            SchedulerPreemptive::handle_event(event, plan);
+        }
+    }
+};
+
 int main()
 {
     const auto input = read_input();
@@ -466,6 +556,9 @@ int main()
         break;
     case Algorithm::RoundRobin:
         scheduler = new SchedulerRoundRobin(input.tasks);
+        break;
+    case Algorithm::DynamicPriority:
+        scheduler = new SchedulerDynamicPriority(input.tasks);
         break;
 
     default:
