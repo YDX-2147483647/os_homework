@@ -278,6 +278,8 @@ protected:
     virtual void on_complete(Event event, Plan &plan)
     {
         this->working_tasks.erase(this->running_task);
+        this->running_task = this->working_tasks.end();
+
         this->on_interrupt(event, plan);
     }
 
@@ -336,11 +338,11 @@ public:
 protected:
     virtual void on_interrupt(Event event, Plan &plan)
     {
+        this->handle_last_running_task();
+
         if (this->working_tasks.empty()) {
-            this->running_task = this->working_tasks.end();
             return;
         }
-
         this->running_task = this->next_task_to_run();
 
         const auto duration = this->can_run_for(event.at);
@@ -354,6 +356,11 @@ protected:
         } else {
             this->register_event(Event(EventType::Complete, end_at, NOT_APPLICABLE));
         }
+    }
+
+    virtual void handle_last_running_task()
+    {
+        this->running_task = this->working_tasks.end();
     }
 
     virtual void record_running_task(Plan &plan, int start_at, int end_at)
@@ -419,6 +426,28 @@ protected:
     }
 };
 
+class SchedulerRoundRobin : public SchedulerPreemptive
+{
+public:
+    SchedulerRoundRobin(const list<Task> &tasks) : SchedulerPreemptive(tasks) {}
+
+protected:
+    virtual int can_run_for(int now)
+    {
+        return min(this->running_task->duration_left, this->running_task->quantum);
+    }
+
+    virtual void handle_last_running_task()
+    {
+        if (this->running_task != this->working_tasks.end()) {
+            // Move last `running_task` to the end
+            this->working_tasks.splice(this->working_tasks.end(), this->working_tasks, this->running_task);
+        }
+
+        this->running_task = this->working_tasks.end();
+    }
+};
+
 int main()
 {
     const auto input = read_input();
@@ -434,6 +463,9 @@ int main()
         break;
     case Algorithm::ShortestRemainingTimeFirst:
         scheduler = new SchedulerShortestRemainingTimeFirst(input.tasks);
+        break;
+    case Algorithm::RoundRobin:
+        scheduler = new SchedulerRoundRobin(input.tasks);
         break;
 
     default:
