@@ -174,7 +174,7 @@ class Scheduler
 protected:
     const list<Task> &tasks;
 
-    /** ready and running tasks */
+    /** ready and running tasks (default: ascending sort by `arrive_at`) */
     list<TaskRuntime> working_tasks;
 
     /** the running task in `working tasks`, `end` if nothing is running */
@@ -278,14 +278,13 @@ protected:
     virtual void on_complete(Event event, Plan &plan)
     {
         this->working_tasks.erase(this->running_task);
-        this->running_task = this->working_tasks.end();
-
         this->on_interrupt(event, plan);
     }
 
     virtual void on_interrupt(Event event, Plan &plan)
     {
         if (this->working_tasks.empty()) {
+            this->running_task = this->working_tasks.end();
             return;
         }
 
@@ -329,6 +328,97 @@ protected:
     }
 };
 
+class SchedulerPreemptive : public Scheduler
+{
+public:
+    SchedulerPreemptive(const list<Task> &tasks) : Scheduler(tasks) {}
+
+protected:
+    virtual void on_interrupt(Event event, Plan &plan)
+    {
+        if (this->working_tasks.empty()) {
+            this->running_task = this->working_tasks.end();
+            return;
+        }
+
+        this->running_task = this->next_task_to_run();
+
+        const auto duration = this->can_run_for(event.at);
+        this->running_task->duration_left -= duration;
+
+        auto end_at = event.at + duration;
+        this->record_running_task(plan, event.at, end_at);
+
+        if (this->running_task->duration_left > 0) {
+            this->register_event(Event(EventType::Interrupt, end_at, NOT_APPLICABLE));
+        } else {
+            this->register_event(Event(EventType::Complete, end_at, NOT_APPLICABLE));
+        }
+    }
+
+    virtual void record_running_task(Plan &plan, int start_at, int end_at)
+    {
+        plan.push_back(Record(this->running_task->id, start_at, end_at, this->running_task->priority));
+    }
+
+    virtual TaskRuntimeIterator next_task_to_run()
+    {
+        return this->working_tasks.begin();
+    };
+
+    /** how long can the `running_task` run for from `now` */
+    virtual int can_run_for(int now)
+    {
+        return this->running_task->duration_left;
+    }
+};
+
+class SchedulerShortestRemainingTimeFirst : public SchedulerPreemptive
+{
+public:
+    SchedulerShortestRemainingTimeFirst(const list<Task> &tasks) : SchedulerPreemptive(tasks) {}
+
+protected:
+    virtual TaskRuntimeIterator next_task_to_run()
+    {
+        auto task = this->working_tasks.begin();
+
+        const auto end = this->working_tasks.end();
+        for (auto t = this->working_tasks.begin(); t != end; ++t) {
+            if (t->duration_left < task->duration_left) {
+                task = t;
+            }
+        }
+
+        return task;
+    }
+
+    virtual int can_run_for(int now)
+    {
+        auto next_arrival = this->events.begin();
+        const auto end = this->events.end();
+        while (next_arrival != end && next_arrival->type != EventType::Arrive) {
+            ++next_arrival;
+        }
+
+        if (next_arrival == end) {
+            // if nothing will arrive
+            return this->running_task->duration_left;
+        } else {
+            return min(this->running_task->duration_left, next_arrival->at - now);
+        }
+    }
+
+    virtual void record_running_task(Plan &plan, int start_at, int end_at)
+    {
+        if (!plan.empty() && this->running_task->id == plan.back().id) {
+            plan.back().end_at = end_at;
+        } else {
+            plan.push_back(Record(this->running_task->id, start_at, end_at, this->running_task->priority));
+        }
+    }
+};
+
 int main()
 {
     const auto input = read_input();
@@ -341,6 +431,9 @@ int main()
         break;
     case Algorithm::ShortestJobFirst:
         scheduler = new SchedulerSJF(input.tasks);
+        break;
+    case Algorithm::ShortestRemainingTimeFirst:
+        scheduler = new SchedulerShortestRemainingTimeFirst(input.tasks);
         break;
 
     default:
