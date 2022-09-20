@@ -570,6 +570,141 @@ section 5
 - 230 ms：此时 #4 和 #1 的优先数都是 28，但 #4 比 #1 早到，所以调度给 #4。
 - 570 ms：#1 只运行了 20 ms，因为用不完一整个时间片（40 ms）就完成了。
 
+## 实验设计方法 2
+
+### 重新分析
+
+由于这里所有进程都仅有一段 CPU 计算，不会出现中断，可忽略“等待”，从而简化进程状态。
+
+如下图，这里只采用`ready`、`running`两种状态，能触发三种事件引起调度，调度时会把某个进程从`ready`转为`running`。
+
+```mermaid
+stateDiagram-v2
+direction LR
+
+[*] --> ready: arrive
+ready --> running: 调度
+running --> ready: interrupt
+running --> [*]: complete
+```
+
+相应建立`enum EventType`，包括`Arrive`、`Interrutpe`、`Complete`三种事件，再加上`PrivateUse`供某些特殊场景。
+
+另外，这里的事件不可取消（一旦加入`events`，就不允许再删除）。
+
+### 总体设计
+
+大致思想是用类的继承、虚函数去除重复代码，同时使用事件循环替代初版各种`while`。
+
+沿用`Algorithm`、`Task`、`TaskRuntime`，`SchedulerRecord`更名为`Record`，`Schedule`更名为`Plan`（以与下面的`Scheduler`区分）。尽量用迭代器替代引用，`list<TaskRuntime>::iterator`简称`TaskRuntimeIterator`。
+
+首先规定`struct Event`，如下。其中`task_id`只适用于`Arrive`事件，其它时候都是`NOT_APPLICABLE`（`#define`的常量）。
+
+```mermaid
+classDiagram-v2
+
+class Event {
+    EventType type
+    int at
+    int task_id
+}
+```
+
+接着是那些调度器类。
+
+```mermaid
+classDiagram-v2
+direction LR
+
+class Scheduler {
+    +run() Plan
+
+	#const list~Task~ &tasks
+	#list~TaskRuntime~ working_tasks
+	#TaskRuntimeIterator running_task
+	#list~Event~ events
+
+    #get_task(int id) TaskRuntime
+    #register_event(Event event)*
+    #register_arrivals()*
+    #nothing_running() bool
+    #handle_event(Event event, Plan &plan)*
+    #on_arrive(Event event, Plan &plan)*
+    #on_complete(Event event, Plan &plan)*
+    #on_interrupt(Event event, Plan &plan)*
+}
+
+class SchedulerPreemptive {
+	#on_interrupt(Event event, Plan &plan)*
+	#handle_last_running_task()*
+	#record_running_task(Plan &plan, int start_at, int end_at)*
+	#next_task_to_run()* TaskRuntimeIterator
+	#can_run_for(int now)* int
+}
+
+SchedulerPreemptive --|> Scheduler
+```
+
+> - 所有任务`tasks`。
+> - 就绪和运行的任务`working_tasks`：默认还按“早到达 → 小进程号”排好，除非有特殊需要。
+> - 未来的事件`events`：始终按发生顺序排列。
+> - `get_task()`：从`tasks`中获取任务并转换为`TaskRuntime`。
+
+```mermaid
+classDiagram-v2
+SchedulerPreemptive --|> Scheduler
+
+class Scheduler {
+    ……
+}
+
+class SchedulerPreemptive {
+    ……
+}
+
+SchedulerFCFS --|> Scheduler
+SchedulerSJF --|> Scheduler
+SchedulerShortestRemainingTimeFirst --|> SchedulerPreemptive
+SchedulerRoundRobin --|> SchedulerPreemptive
+SchedulerDynamicPriority --|> SchedulerPreemptive
+
+class SchedulerSJF {
+    #on_arrive(Event event, Plan &plan)
+}
+
+class SchedulerShortestRemainingTimeFirst {
+    #next_task_to_run() TaskRuntimeIterator
+    #can_run_for(int now) int
+    #record_running_task(Plan &plan, int start_at, int end_at)
+}
+
+class SchedulerRoundRobin {
+    #can_run_for(int now) int
+    #handle_last_running_task()
+}
+
+class SchedulerDynamicPriority {
+    #next_task_to_run() TaskRuntimeIterator
+    #can_run_for(int now) int
+    #record_running_task(Plan &plan, int start_at, int end_at)
+    #register_event(Event event)
+    #handle_event(Event event, Plan &plan)
+}
+
+```
+
+### 调度方案设计
+
+## 实验结果及数据分析 2
+
+> 乐学太慢了，直接在本地用`judger`和初版程序比较的。
+
+### 自己测试
+
+全都通过了。
+
+![](doc_1.assets/image-20220920235753845.png)
+
 ## 总结
 
 - 调试工具很重要。
