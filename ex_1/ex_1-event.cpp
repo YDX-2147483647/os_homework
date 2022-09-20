@@ -321,7 +321,7 @@ public:
     SchedulerSJF(const list<Task> &tasks) : Scheduler(tasks) {}
 
 protected:
-    virtual void on_arrive(Event event, Plan &plan)
+    void on_arrive(Event event, Plan &plan)
     {
         auto task = this->get_task(event.task_id);
 
@@ -396,7 +396,7 @@ public:
     SchedulerShortestRemainingTimeFirst(const list<Task> &tasks) : SchedulerPreemptive(tasks) {}
 
 protected:
-    virtual TaskRuntimeIterator next_task_to_run()
+    TaskRuntimeIterator next_task_to_run()
     {
         auto task = this->working_tasks.begin();
 
@@ -410,7 +410,7 @@ protected:
         return task;
     }
 
-    virtual int can_run_for(int now)
+    int can_run_for(int now)
     {
         auto next_arrival = this->events.begin();
         const auto end = this->events.end();
@@ -426,7 +426,7 @@ protected:
         }
     }
 
-    virtual void record_running_task(Plan &plan, int start_at, int end_at)
+    void record_running_task(Plan &plan, int start_at, int end_at)
     {
         if (!plan.empty() && this->running_task->id == plan.back().id) {
             plan.back().end_at = end_at;
@@ -442,12 +442,12 @@ public:
     SchedulerRoundRobin(const list<Task> &tasks) : SchedulerPreemptive(tasks) {}
 
 protected:
-    virtual int can_run_for(int now)
+    int can_run_for(int now)
     {
         return min(this->running_task->duration_left, this->running_task->quantum);
     }
 
-    virtual void handle_last_running_task()
+    void handle_last_running_task()
     {
         if (this->running_task != this->working_tasks.end()) {
             // Move last `running_task` to the end
@@ -481,7 +481,7 @@ public:
     SchedulerDynamicPriority(const list<Task> &tasks) : SchedulerPreemptive(tasks) {}
 
 protected:
-    virtual TaskRuntimeIterator next_task_to_run()
+    TaskRuntimeIterator next_task_to_run()
     {
         auto task = this->working_tasks.begin();
 
@@ -495,20 +495,20 @@ protected:
         return task;
     }
 
-    virtual int can_run_for(int now)
+    int can_run_for(int now)
     {
         return min(this->running_task->duration_left, this->running_task->quantum);
     }
 
     /** Decrease the `running_task`'s priority then record it */
-    virtual void record_running_task(Plan &plan, int start_at, int end_at)
+    void record_running_task(Plan &plan, int start_at, int end_at)
     {
         this->running_task->priority += 3;
 
         SchedulerPreemptive::record_running_task(plan, start_at, end_at);
     }
 
-    virtual void register_event(Event event)
+    void register_event(Event event)
     {
         if (event.type == EventType::Complete || event.type == EventType::Interrupt) {
             auto e = this->events.begin();
@@ -523,7 +523,7 @@ protected:
         SchedulerPreemptive::register_event(event);
     }
 
-    virtual void handle_event(Event event, Plan &plan)
+    void handle_event(Event event, Plan &plan)
     {
         if (event.type == EventType::PrivateUse) {
             // Increase ready tasks' priorites
