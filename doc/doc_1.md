@@ -12,13 +12,13 @@
 
 ## 实验基础知识
 
-- 进程调度
+- **进程调度**
 
   对于单核单处理器系统，同时只能有一个进程运行，其它进程必须等到处理器再次空闲，重新调度时才有可能运行。为了充分利用 CPU、缩短进程等待时间、尽快响应新进程，需要特别设计进程调度。
 
 - 典型的进程是 CPU 与输入输出请求交替执行，阻塞（等待输入输出等事件）时 CPU 可以先让其它进程运行。本实验不涉及任何输入输出请求，所有进程都只含 CPU 计算。
 
-- 进程状态
+- **进程状态**
 
   ```mermaid
   stateDiagram-v2
@@ -36,7 +36,7 @@
   运行 --> [*]: 终止
   ```
 
-- 调度时机
+- **调度时机**
 
   只有以下四种情况有可能发生调度，并且前两种必定发生调度。
 
@@ -512,8 +512,125 @@ classDef diff fill: orange;
 
 ## 实验结果及数据分析
 
+### 乐学
+
+全都通过了。
+
+![](doc_1.assets/accepted.jpg)
+
+![](doc_1.assets/截图 2022-09-20 21.21.26.png)
+
+### 自己测试
+
+测试了好多，这里只放调试最久的动态优先级的一个例子。
+
+下图中，横坐标表示时刻，纵坐标对应任务编号；菱形表示到达（输入），矩形表示运行（输出）；菱形、矩形上的数字是当时的优先数；时间片为 40 ms（输入）。
+
+```mermaid
+gantt
+dateFormat SSS
+axisFormat %L ms
+
+section 1
+29: milestone, 200, 0
+30: 270, 310
+30: 430, 470
+31: crit, 550, 570
+
+section 2
+26: milestone, 100, 0
+28: 120, 160
+30: 190, 230
+31: 310, 350
+
+section 3
+27: milestone, 150, 0
+29: 160, 190
+
+section 4
+30: milestone, 000, 0
+33: crit, 000, 040
+31: crit, 230, 270
+31: 390, 430
+32: 510, 550
+33: 580, 620
+
+section 5
+28: milestone, 040, 0
+31: crit, 040, 080
+34: 080, 120
+31: 350, 390
+32: 470, 510
+33: 570, 580
+
+```
+
+- 0 ms：只有任务 #4 到达了，故把 CPU 调度给他——未到达的任务不影响调度。
+- 40 ms：此时任务 #4 的优先数为 33，#5为 28，调度给小的，即 #5。
+- 230 ms：此时 #4 和 #1 的优先数都是 28，但 #4 比 #1 早到，所以调度给 #4。
+- 570 ms：#1 只运行了 20 ms，因为用不完一整个时间片（40 ms）就完成了。
+
 ## 总结
+
+- 调试工具很重要。
+
+  一开始 Wrong Answer 时就硬看，实在受不了……然后用 VS Code 的比较功能（如下图），好一点~儿~，但还是不容易搞清关系。最后做了`draw_gantt.py`，很舒适。
+
+  ![](doc_1.assets/image-20220920222726869.png)
+
+- 区分传值和传引用。
+
+  `ready_tasks.front()`虽然返回`TaskRuntime &`，但`auto t = ready_tasks.front()`（而非`auto &`）的`t`仍然是`TaskRuntime`。因而修改`t.priority`不会影响`ready_tasks`里的优先级。
+
+  我这次最后采用`auto t = ready_tasks.begin()`，`t`是`list<TaskRuntime>::iterator`，肯定能修改原链表里的优先级。这样还可用`erase`替代`remove`，从而避免大量比较。（不过没有太大影响）
+
+- 代码本身就暗示了极端情况。
+
+  例如一写下`auto shortest_task = ready_tasks.front()`，就要想想`ready_tasks`空不空。
 
 ## 附录
 
-程序清单及说明。（列出文件名及说明即可，不需要在此处复制代码，代码直接以源文件形式提供，但源文件中对代码要有必要的注释和说明）
+### 程序清单及说明
+
+- `draw_gantt.py`：绘制 Gantt 图。
+- `ex_1-event.cpp`：去除重复代码的版本。
+- `ex_1.cpp`：初次写的版本。
+- `ref.py`：从[网上找的（部分）正确程序](https://www.jianshu.com/p/6e415fdce561)的节选，用于反推实验要求。
+- `/judger/src/`
+  - `lib.rs`：解析参数、用测试用例检查程序。
+  - `main.rs`：CLI。
+  - `run.rs`：较底层的运行。
+
+### `draw_gantt.py`使用示例
+
+```powershell
+> ./draw_gantt.py
+algorithm id >> 5
+tasks >>
+1/200/100/29/40
+……
+5/40/170/28/40
+^Z
+schedule >>
+1/4/0/40/33
+……
+17/4/580/620/33
+^Z
+gantt
+dateFormat SSS
+axisFormat %L ms
+
+section 1
+29: milestone, 200, 0
+30: 270, 310
+
+……
+
+section 5
+……
+33: 570, 580
+
+I've copied to your clipboard. Try to paste it to https://mermaid.live/ .
+```
+
+> `^Z`是<kbd>Ctrl</kbd>+<kbd>Z</kbd>。
