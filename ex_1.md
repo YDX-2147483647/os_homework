@@ -1,6 +1,10 @@
 # [实验1 单处理机进程调度](https://lexue.bit.edu.cn/mod/programming/view.php?id=365470)
 
 > 2022年9月12日。
+> 
+> 王美凝，信息系统及安全对抗实验中心（Beijing Forest Studio）。
+
+// 这是第二次上，上一次是上学期的上一届。
 
 ## 内容
 
