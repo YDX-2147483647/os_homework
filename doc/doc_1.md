@@ -263,21 +263,25 @@ style first_future fill:#fff0, stroke:#fff0;
 
 程序流程如下。
 
+> 橙色部分表示与前面不同，后同。
+
 ```mermaid
 flowchart TB
 subgraph init[初始化]
     direction TB
     new_schedule[新建空 schedule]
-    new_ready_tasks[新建空 ready_tasks]
-    init_first_future_task["first_future_task = tasks.begin()"]
+    new_ready_tasks[新建空 ready_tasks]:::diff
+    init_first_future_task["first_future_task = tasks.begin()"]:::diff
     zero[int clock = 0]
 end
 
 init --> while --> return[返回 schedule]
 
 subgraph while["一直循环，直到没有未到达或就绪的任务"]
-    必要时调表快进  --> 更新新到达任务的状态 --> select[从 ready_tasks 中挑出运行时间最短的] --> 记录并让时间流逝
+    必要时调表快进  --> 更新新到达任务的状态:::diff --> select[从 ready_tasks 中挑出运行时间最短的]:::diff --> 记录并让时间流逝
 end
+
+classDef diff fill: orange;
 ```
 
 - **一直循环，直到没有未到达或就绪的任务**：
@@ -311,6 +315,200 @@ end
      ```c++
      ready_tasks.remove(shortest_task);
      ```
+
+#### 3. 最短剩余时间优先`shortest_remaining_time_first`
+
+从这一方案起，全都属于抢占式。任务可能分多次运行，`ready_tasks`要从`list<Task>`改为`list<TaskRuntime>`。
+
+仍旧采用`first_future_task`加`ready_tasks`的模式，只是要同时维护`duration_left`。
+
+```mermaid
+flowchart TB
+subgraph init[初始化]
+    direction TB
+    new_schedule[新建空 schedule]
+    new_ready_tasks[新建空 ready_tasks]
+    init_first_future_task["first_future_task = tasks.begin()"]
+    zero[int clock = 0]
+end
+
+init --> while --> return[返回 schedule]
+
+subgraph while["一直循环，直到没有未到达或就绪的任务"]
+    handle_tasks_arrival
+    --> select[从 ready_tasks 中<br>挑出 duration_left 最短的]:::diff
+    --> 计算运行时间:::diff
+    --> 记录并让时间流逝:::diff
+    --> check{duration_left > 0}:::diff
+    --> |是| back[压回 ready_tasks]:::diff
+    
+    check -->|否| 继续
+end
+
+classDef diff fill: orange;
+```
+
+- **`handle_tasks_arrival`**
+
+  相当于原来的“必要时调表快进”和“更新新到达任务的状态”，只是整理成了函数。
+
+- **计算运行时间**
+
+  由于可抢占，任务不一定依次运行完，可能中途被强占，导致这次运行时间小于任务本身剩余运行时间。
+
+  ```c++
+  int duration = shortest_task.duration_left;
+  if (first_future_task != tasks.end()) {
+      duration = min(duration, first_future_task->arrive_at - clock);
+  }
+  ```
+
+- **记录并让时间流逝**
+
+  - 记录
+
+    - 若上次记录（若有）和这次是同一任务，直接修改上次记录。
+    - 否则在`schedule`末尾追加记录。
+
+    这种奇怪操作在五种方案中独一无二。如果一个任务运行中途另一任务到达，需比较才知是否能抢占，即“调度”了一下。然而根据所给测试用例，这不算调度，前后两段要输出成一段。
+
+  - 让时间流逝
+
+    除了`clock += duration`，还要更新任务的剩余运行时间：`shortest_task.duration_left -= duration`。
+
+- **压回`ready_tasks`**
+
+  要压到`ready_tasks`末尾，这样保证“从`ready_tasks`中挑出`duration_left`最短的”时，若剩余时间相同，能挑出先来的。
+
+#### 4. 时间片轮转`round_robin`
+
+仍旧采用之前模式。
+
+```mermaid
+flowchart TB
+subgraph init[初始化]
+    direction TB
+    new_schedule[新建空 schedule]
+    new_ready_tasks[新建空 ready_tasks]
+    init_first_future_task["first_future_task = tasks.begin()"]
+    zero[int clock = 0]
+end
+
+init --> handle_tasks_arrival_0[handle_tasks_arrival]:::diff --> while --> return[返回 schedule]
+
+subgraph while["一直循环，直到没有未到达或就绪的任务"]
+    select[从 ready_tasks 中<br>挑出开头的]:::diff
+    --> 计算运行时间:::diff
+    --> 记录并让时间流逝
+    --> handle_tasks_arrival:::diff
+    --> check{duration_left > 0}
+    --> |是| back[压回 ready_tasks]
+    
+    check -->|否| 继续
+end
+
+classDef diff fill: orange;
+```
+
+- **`handle_tasks_arrival`**
+
+  内容与前面相同，只是位置变了。原来是在<u>上一轮</u>的“压回`ready_tasks`”<u>之后</u>，现在是在<u>这一轮</u>的“压回`ready_tasks`”<u>之前</u>。
+
+  这是为了满足实验要求：任务回到`ready_tasks`时，要排到它运行时新到达的任务之。
+
+- **从`ready_tasks`中挑出开头的**
+
+  无需花 $\order{n}$ 找，第一个便是要运行的。
+
+- **计算运行时间**
+
+  ```c++
+  int duration = min(next_task.duration_left, next_task.quantum);
+  ```
+
+#### 5. 动态优先级`dynamic_priority`
+
+实验要求这里描述得较模糊，先重新阐释一下。
+
+- 每次调度时选择运行的顺序：小优先数 → 早到达 → 小进程号。
+
+  由于我`read_input`时已经按“早到达 → 小进程号”排好，遇到相同优先数，直接取靠前的即可。
+
+- 指定初始优先数。
+
+- 任务每运行一个时间片，优先数加3。
+
+- 任务每在就绪队列中每停留一个时间片，优先数减1。
+
+  不完整的时间片也算一个。换句话说，在时间片中途到达的任务，初次调度时优先级可能就已经变了。
+
+- 优先数最小是零。
+
+现在来看设计。仍旧采用`first_future_task`加`ready_tasks`的模式。下面是具体流程。
+
+```mermaid
+flowchart TB
+subgraph init[初始化]
+    direction TB
+    new_schedule[新建空 schedule]
+    new_ready_tasks[新建空 ready_tasks]
+    init_first_future_task["first_future_task = tasks.begin()"]
+    zero[int clock = 0]
+end
+
+init --> while --> return[返回 schedule]
+
+subgraph while["一直循环，直到没有未到达或就绪的任务"]
+    处理新到达任务:::diff
+    --> select[在 ready_tasks 中<br>选择 priority 最小的]:::diff
+    --> 运行
+    
+    subgraph 运行
+        更新优先级:::diff
+        --> 计算运行时间
+        --> 记录并让时间流逝
+	end
+
+    运行
+    --> check{duration_left == 0}:::diff
+    --> |是| back[从 ready_tasks 中删除]:::diff
+    
+    check -->|否| 继续
+end
+
+classDef diff fill: orange;
+```
+
+- **处理新到达的任务**
+
+  与原来的`handle_tasks_arrival`相同，但对于那些中途到达的任务，要先更新一次优先级。
+
+  ```c++
+  if (first_future_task->arrive_at < clock) {
+      new_task.priority = max(new_task.priority - 1, 0);
+  }
+  ```
+
+  注意这个`if`条件是严格不等号；而外层`while`条件和原来一样，仍是不严格的。
+
+- **在`ready_tasks`中选择`priority`最小的**
+
+  从“挑出”变成了“选择”。具体来说，运行任务前不再删除任务等后续加回，而是直接在原地操作，必要再删除。
+
+  这样可以保持`ready_tasks`一直按“早到达 → 小进程号”排好，方便查找要运行的程序。
+
+- **更新优先级**
+
+  由于实验要求`schedule`中优先级是更新过的，所以要在“运行”开头更新。
+
+  ```c++
+  next_task->priority += 3;
+  for (auto &&t : ready_tasks) {
+      if (t != *next_task) {
+          t.priority = max(t.priority - 1, 0);
+      }
+  }
+  ```
 
 ## 实验结果及数据分析
 
