@@ -414,7 +414,7 @@ classDef diff fill: orange;
 
   内容与前面相同，只是位置变了。原来是在<u>上一轮</u>的“压回`ready_tasks`”<u>之后</u>，现在是在<u>这一轮</u>的“压回`ready_tasks`”<u>之前</u>。
 
-  这是为了满足实验要求：任务回到`ready_tasks`时，要排到它运行时新到达的任务之。
+  这是为了满足实验要求：任务回到`ready_tasks`时，要排到它运行时新到达的任务之后。
 
 - **从`ready_tasks`中挑出开头的**
 
@@ -647,6 +647,7 @@ SchedulerPreemptive --|> Scheduler
 
 > - 所有任务`tasks`。
 > - 就绪和运行的任务`working_tasks`：默认还按“早到达 → 小进程号”排好，除非有特殊需要。
+> - 正在运行的任务`running_task`：总是`working_tasks`中的一项；若无人运行，为`working_tasks.end()`。
 > - 未来的事件`events`：始终按发生顺序排列。
 > - `get_task()`：从`tasks`中获取任务并转换为`TaskRuntime`。
 
@@ -694,6 +695,293 @@ class SchedulerDynamicPriority {
 ```
 
 ### 调度方案设计
+
+#### 一般调度器`Scheduler`
+
+- **构造函数**
+
+  - 所有任务都未到达：`working_tasks`为空，`running_task`为`end`。
+  - 无事件：`events`为空。
+
+- **运行`run()`**
+
+  新建空`plan`，登记所有任务的`Arrive`事件。然后逐一用`handle_event`处理`events`。最后返回`plan`。
+
+  ```c++
+  Plan plan = Plan();
+  register_arrivals();
+  
+  while (!this->events.empty()) {
+      auto event = this->events.front();
+      this->events.pop_front();
+  
+      handle_event(event, plan);
+  }
+  
+  return plan;
+  ```
+
+- **处理事件`handle_event(event, plan)`**
+
+  用`switch`–`case`根据`event.type`调用相应`on_○○(event, plan)`。
+
+  `on_○○(…)`可能增删`working_tasks`、修改`running_task`、向`events`登记事件。
+
+  下面是个例子。
+
+  1. `run`处理`Arrive #1`时，从`events`中弹出`Arrive #1`，调用`handle_event`。
+  2. 它又转给`on_arrive`。
+  3. `on_arrive`将`#1`添加进`working_tasks`。
+  4. 它发现没有别人，就直接运行之，用`running_task`指向它，同时又在适当时刻登记`Complete`事件，如下。
+
+     ```c++
+     this->register_event(Event(EventType::Complete, end_at, NOT_APPLICABLE));
+     ```
+
+  ```mermaid
+  flowchart TB
+  subgraph events
+      1[Arrive #1]:::delete --- 2[Arrive #2] x-.-x 3[Arrive #3] --- etc["…"]
+      2 -.- Complete:::new -.- 3
+      1 ==> Complete
+  end
+  
+  classDef new fill: orange
+  classDef delete stroke-dasharray: 5 5
+  ```
+
+- **登记事件`register_event(event)`**
+
+  向`events`中插入事件，保持`events`按发生顺序排列，且同时发生时，后插入的在后。
+
+#### 先来先服务`SchedulerFCFS`
+
+ `Scheduler`的默认实现便是`SchedulerFCFS`。
+
+- **`on_arrive`**
+
+  1. `get_task`：从`tasks`中找出到达的任务（并转换为`TaskRuntime`）。
+  2. 加入`working_tasks`末尾。
+  3. 如果当前无人运行（`this->nothing_running()`），立即发起一次调度（调用`on_interrupt`）。
+
+- **`on_complete`**
+
+  1. 从`working_tasks`中删除之前运行的任务。
+  2. 清空`running_task`（指向`this->working_tasks.end()`。
+  3. 立即发起一次调度。
+
+- **`on_interrupt`**
+
+  1. 若无人可运行（`working_tasks`空），清空`running_task`，直接返回。（`run`回处理下次`Arrive`事件）
+
+  2. 选择`working_tasks`开头，运行（用`running_task`指向）并记录（`plan.push_back(Record(…))`）之。
+
+     > 因为`working_tasks`默认按“早到达 → 小进程号”排好。
+
+  3. 登记它的`Complete`事件。
+
+#### 短作业优先`SchedulerSJF`
+
+只需将`working_tasks`的顺序从“早到达 → 小进程号”改为“小运行时间 → 早到达”。
+
+- **`on_arrive`**
+
+  1. （同前）`get_task`。
+
+  2. 插入`working_tasks`，同时保持其顺序。
+
+     ```mermaid
+     flowchart
+     init["where = working_tasks.begin()"]
+     --> check{"where ≠ end ∧<br>where 的剩余时间<br>比 task 小"}
+     -->|是| increment[++where] --> check
+     check -->|否| insert["working_tasks.insert(where, task)"]
+     ```
+
+  3. （同前）如果当前无人运行，立即发起一次调度。
+
+可以看到，这一版本干净利落地实现了两种非抢占式方案。
+
+#### 抢占式方案`SchedulerPreemptive`
+
+抢占式方案稍微复杂一些，有一些共同的东西可以抽象出来。
+
+- **`on_interrupt`**
+
+  1. **`handle_last_running_task`**
+
+     抢占式方案中任务可以分多次运行，中断时有些收尾工作要做，例如调整`working_tasks`的顺序。
+
+  2. （同前）**若无人可运行，直接返回。**
+
+  3. **从`working_tasks`中选择要运行的任务。**（`next_task_to_run`）
+
+     ```c++
+     this->running_task = this->next_task_to_run();
+     ```
+
+  4. **计算运行时间。**（`can_run_for`）
+
+     因为可抢占，每次运行时间不一定是总运行时间。
+
+     ```c++
+     const auto duration = this->can_run_for(event.at);
+     ```
+
+  5. **记录并让时间流逝。**（`record_running_task`）
+
+     ```c++
+     this->running_task->duration_left -= duration;
+     
+     auto end_at = event.at + duration;
+     this->record_running_task(plan, event.at, end_at);
+     ```
+
+  6. 根据情况，**登记它的`Complete`或`Interrupt`事件**。
+
+#### 最短剩余时间优先`SchedulerShortestRemainingTimeFirst`
+
+- **`next_task_to_run`**
+
+  花 $\order{n}$ 找出`duration_left`最小的。若相等，取靠前的。
+
+  因为`working_tasks`保证按“早到达 → 小进程号”排序。
+
+- **`can_run_for(now)`**
+
+  最长运行到下次`Arrive`事件（如果有）。
+
+  ```mermaid
+  flowchart
+  init["next_arrival = events.begin()"]
+  -->  while
+  
+  subgraph while["循环：next_arrival ≠ end ∧ next_arrival 不是 Arrive 事件"]
+      ++next_arrival
+  end
+  
+  while --> if{next_arrival == end}
+  -->|是| return_1["return running_task→duration_left"]
+  if -->|否| return_2["return min(running_task→duration_left,<br> next_arrival→at - now)"]
+  ```
+
+- **`record_running_task(plan, start_at, end_at)`**
+
+  这种方案有个独一无二的奇怪操作，见初版程序部分。
+
+  ```c++
+  if (!plan.empty() && this->running_task->id == plan.back().id) {
+      plan.back().end_at = end_at;
+  } else {
+      SchedulerPreemptive::record_running_task(plan, start_at, end_at);
+  }
+  ```
+
+#### 时间片轮转`SchedulerRoundRobin`
+
+- **`can_run_for(now)`**
+
+  最长运行完时间片。
+
+- **`handle_last_running_task`**
+
+  1. 将`running_task`移到末尾。
+
+     ```c++
+     if (this->running_task != this->working_tasks.end()) {
+         this->working_tasks.splice(this->working_tasks.end(), this->working_tasks, this->running_task);
+     }
+     ```
+
+     注意如果同一时刻发生`Arrive`和`Interrupt`，会先处理`Arrive`，因为它比`Interrupt`先进入`events`。（`Arrive`在`run`开头进入，`Interrupt`在事件循环中进入。）于是天然保证了要求：“任务回到`ready_tasks`时，要排到它运行时新到达的任务之后。”
+
+  2. 清空`running_task`。
+
+可以看到，这一版本又同样轻巧地实现了两种抢占式方案。
+
+#### 动态优先级`SchedulerDynamicPriority`
+
+这种方案实现得最复杂，因为实验要求比较拧巴。不过我们先看简单的——这一版程序的好处就是允许一部分一部分构思，而非一大坨一大坨得写。
+
+- **`next_task_to_run`**
+
+  花 $\order{n}$ 找出`priority`最小的。若相等，取靠前的。
+
+  因为`working_tasks`保证按“早到达 → 小进程号”排序。
+
+- **`can_run_for`**
+
+  （同前）最长运行完时间片。
+
+- **`record_running_task`**
+
+  记录前要把`running_task`的优先数加三。
+
+下面来处理拧巴的部分。
+
+```mermaid
+flowchart LR
+start[某任务<br>开始运行]
+--> arrive["Arrive<br>一些新任务到达<br>（它们的优先数要减1）"]
+--> interrupt[Interrupt<br>运行的任务中断了]
+-->|更新| arrive_meantime["Arrive<br>另一些任务同时到达<br>（它们的优先数不变）"]
+--> decide[决定下次运行<br>哪个任务]
+```
+
+理想时间线如上，我们要在“更新”处更新优先级。然而这不可能！同时发生时，`Arrive`总是比`Interrupt`先被处理。
+
+因此，这里引入一种新事件（`PrivateUse`）专门减那些优先数。
+
+```mermaid
+flowchart LR
+
+1[Arrive #1] --- 2[Arrive #2] --- PrivateUse:::diff --- 3[Arrive #3] --- Complete:::diff --- 4[Arrive #4] --- etc["…"]
+subgraph 同一时刻
+    PrivateUse
+    3
+    Complete
+end
+
+classDef diff fill: orange
+```
+
+- **`handle_event(event, plan)`**
+
+  ```mermaid
+  flowchart
+  type{event.type}
+  -->|PrivateUse| 给所有就绪任务的优先数减一:::diff
+  type -->|其它| parent[调用原来的 handle_event]
+  
+  classDef diff fill: orange
+  ```
+
+  注意减一不能减到负，可用`max(_, 0)`限制。
+
+  ```c++
+  for (auto &&t : this->working_tasks) {
+      if (t != *this->running_task) {
+          t.priority = max(t.priority - 1, 0);
+      }
+  }
+  ```
+
+- **`register_event(event)`**
+
+  若涉及前述矛盾，悄悄补一个`PrivateUse`事件。
+
+  ```mermaid
+  flowchart
+  type{event.type}
+  -->|Complete 或 Interrupt| insert[在同一时刻 Arrive 事件前插入 PrivateUse]:::diff
+  --> parent[调用原来的 register_event]
+  
+  type -->|其它| parent
+  
+  classDef diff fill: orange
+  ```
+
+至此，虽然比较魔幻，但还勉强算简单地实现了动态优先级方案。
 
 ## 实验结果及数据分析 2
 
