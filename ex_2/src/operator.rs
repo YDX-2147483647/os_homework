@@ -47,11 +47,11 @@ pub fn run_operators(operators: Vec<Operator>) {
 
         match o.role {
             OperatorRole::Reader => {
-                o.say("创建", &now);
+                o.say("🚀创建", &now);
                 handles.push(thread::spawn(move || {
                     thread::sleep(Duration::from_secs_f32(o.start_at));
 
-                    o.say("申请", &now);
+                    o.say("❓申请", &now);
                     {
                         let mut n_readers = n_readers.lock().unwrap();
                         *n_readers += 1;
@@ -63,9 +63,9 @@ pub fn run_operators(operators: Vec<Operator>) {
                         }
                     }
 
-                    o.say("开始读取", &now);
+                    o.say("🏁开始读取", &now);
                     thread::sleep(Duration::from_secs_f32(o.duration));
-                    o.say("结束读取", &now);
+                    o.say("🛑结束读取", &now);
 
                     {
                         let mut n_readers = n_readers.lock().unwrap();
