@@ -101,7 +101,7 @@ pub fn run_operators(operators: Vec<Operator>) {
 
                 {
                     let mut n_readers = n_readers.lock().unwrap();
-                    *n_readers += 1;
+                    *n_readers -= 1;
 
                     // if I am the last
                     if *n_readers == 0 {
