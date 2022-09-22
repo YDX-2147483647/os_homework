@@ -122,7 +122,10 @@ impl Reporter {
             who.id,
             match action {
                 Action::Create => "🚀创建",
-                Action::Request => "🔔申请",
+                Action::Request => match who.role {
+                    OperatorRole::Reader => "🔔👀申请读取",
+                    OperatorRole::Writer => "🔔📝申请写入",
+                },
                 Action::Start => match who.role {
                     OperatorRole::Reader => "🏁👀开始读取",
                     OperatorRole::Writer => "🏁📝开始写入",
