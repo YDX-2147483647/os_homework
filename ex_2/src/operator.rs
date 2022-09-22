@@ -1,5 +1,6 @@
+use super::semaphore::{signal, wait};
 use std::{
-    sync::{Arc, Mutex},
+    sync::{Arc, Condvar, Mutex},
     thread,
     time::{Duration, Instant},
 };
@@ -51,78 +52,77 @@ impl Reporter {
             who.id,
             match action {
                 Action::Create => "🚀创建",
-                Action::Request => "❓申请",
-                Action::Start => "🏁开始读取",
-                Action::End => "🛑结束读取",
+                Action::Request => "🔔申请",
+                Action::Start => match who.role {
+                    OperatorRole::Reader => "🏁👀开始读取",
+                    OperatorRole::Writer => "🏁📝开始写入",
+                },
+                Action::End => match who.role {
+                    OperatorRole::Reader => "🛑👀结束读取",
+                    OperatorRole::Writer => "🛑📝结束写入",
+                },
             },
         );
     }
 }
 
 pub fn run_operators(operators: Vec<Operator>) {
-    let access_right = Arc::new(Mutex::new(true));
+    let access = Arc::new((Mutex::new(true), Condvar::new()));
     let n_readers = Arc::new(Mutex::new(0));
 
     let reporter = Arc::new(Reporter::new());
 
     let mut handles = Vec::new();
     for o in operators {
+        let access = Arc::clone(&access);
         let n_readers = Arc::clone(&n_readers);
-        let access_right = Arc::clone(&access_right);
         let reporter = Arc::clone(&reporter);
 
         match o.role {
-            OperatorRole::Reader => {
-                handles.push(thread::spawn(move || {
-                    reporter.report(&o, Action::Create);
+            OperatorRole::Reader => handles.push(thread::spawn(move || {
+                reporter.report(&o, Action::Create);
 
-                    thread::sleep(Duration::from_secs_f32(o.start_at));
+                thread::sleep(Duration::from_secs_f32(o.start_at));
 
-                    reporter.report(&o, Action::Request);
-                    {
-                        let mut n_readers = n_readers.lock().unwrap();
-                        *n_readers += 1;
+                reporter.report(&o, Action::Request);
+                {
+                    let mut n_readers = n_readers.lock().unwrap();
+                    *n_readers += 1;
 
-                        // if I am the first
-                        if *n_readers == 1 {
-                            let mut access_right = access_right.lock().unwrap();
-                            *access_right = false;
-                        }
+                    // if I am the first
+                    if *n_readers == 1 {
+                        wait(&*access);
                     }
+                }
 
-                    reporter.report(&o, Action::Start);
-                    thread::sleep(Duration::from_secs_f32(o.duration));
-                    reporter.report(&o, Action::End);
+                reporter.report(&o, Action::Start);
+                thread::sleep(Duration::from_secs_f32(o.duration));
+                reporter.report(&o, Action::End);
 
-                    {
-                        let mut n_readers = n_readers.lock().unwrap();
-                        *n_readers += 1;
+                {
+                    let mut n_readers = n_readers.lock().unwrap();
+                    *n_readers += 1;
 
-                        // if I am the last
-                        if *n_readers == 0 {
-                            let mut access_right = access_right.lock().unwrap();
-                            *access_right = true;
-                        }
+                    // if I am the last
+                    if *n_readers == 0 {
+                        signal(&*access);
                     }
-                }))
-            }
-            OperatorRole::Writer => {
-                todo!("`access_right`现在未实现读写互斥。");
-                // o.say("创建", &now);
-                // handles.push(thread::spawn(move || {
-                //     thread::sleep(Duration::from_secs_f32(o.start_at));
+                }
+            })),
+            OperatorRole::Writer => handles.push(thread::spawn(move || {
+                reporter.report(&o, Action::Create);
 
-                //     o.say("申请", &now);
-                //     let mut access_right = access_right.lock().unwrap();
-                //     *access_right = false;
+                thread::sleep(Duration::from_secs_f32(o.start_at));
 
-                //     o.say("开始写入", &now);
-                //     thread::sleep(Duration::from_secs_f32(o.duration));
-                //     o.say("结束写入", &now);
+                reporter.report(&o, Action::Request);
+                wait(&*access);
 
-                //     *access_right = true;
-                // }))
-            }
+                reporter.report(&o, Action::Start);
+                thread::sleep(Duration::from_secs_f32(o.duration));
+                reporter.report(&o, Action::End);
+
+                signal(&*access);
+            })),
         };
     }
 

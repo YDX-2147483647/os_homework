@@ -1,4 +1,5 @@
 mod operator;
+mod semaphore;
 pub use operator::{run_operators, Operator, OperatorRole};
 
 #[derive(Debug)]
