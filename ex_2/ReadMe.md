@@ -1,9 +1,10 @@
 # 读者写者问题
 
 ```powershell
-> cat ./test_cases/mixed.in | cargo run
+> cargo run -- --help
+> cat ./test_cases/mixed.in | cargo run -- read-preferring
 # mixed.in 是提供的测试输入
-> cat ./test_cases/gap.in | cargo run
+> cat ./test_cases/gap.in | cargo run -- write-preferring --tab 10
 ```
 
 ## 相关链接

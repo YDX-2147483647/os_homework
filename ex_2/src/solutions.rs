@@ -5,13 +5,13 @@ use std::{
 };
 
 use super::semaphore::{signal, wait};
-use crate::{Action, Operator, OperatorRole, Reporter};
+use crate::{Action, Operator, OperatorRole, Reporter, ReporterConfig};
 
-pub fn run_read_preferring(operators: Vec<Operator>) {
+pub fn run_read_preferring(operators: Vec<Operator>, config: ReporterConfig) {
     let access = Arc::new((Mutex::new(true), Condvar::new()));
     let n_readers = Arc::new(Mutex::new(0));
 
-    let reporter = Arc::new(Reporter::new());
+    let reporter = Arc::new(Reporter::new(config));
 
     let mut handles = Vec::new();
     for o in operators {

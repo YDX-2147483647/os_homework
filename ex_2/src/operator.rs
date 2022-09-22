@@ -94,7 +94,15 @@ impl Operator {
 }
 
 pub struct Reporter {
+    /// 初始时刻
     now: Instant,
+    /// 打印信息时每个进程缩进的数量
+    tab: u8,
+}
+
+pub struct ReporterConfig {
+    /// 打印信息时每个进程缩进的数量
+    pub tab: u8,
 }
 
 pub enum Action {
@@ -109,16 +117,18 @@ pub enum Action {
 }
 
 impl Reporter {
-    pub fn new() -> Reporter {
+    pub fn new(ReporterConfig { tab }: ReporterConfig) -> Reporter {
         Reporter {
             now: Instant::now(),
+            tab,
         }
     }
 
     pub fn report(&self, who: &Operator, action: Action) {
         println!(
-            "{:6.3} s | #{}：{}。",
+            "{:6.3} s |{:indent$}#{}：{}。",
             self.now.elapsed().as_millis() as f32 / 1000.,
+            " ",
             who.id,
             match action {
                 Action::Create => "🚀创建",
@@ -135,6 +145,7 @@ impl Reporter {
                     OperatorRole::Writer => "🛑📝结束写入",
                 },
             },
+            indent = (who.id % 8) as usize * self.tab as usize
         );
     }
 }
