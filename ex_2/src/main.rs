@@ -1,6 +1,6 @@
 use std::io;
 
-use ex_2::{parse_operator, Operator};
+use ex_2::{parse_operator, run_operators, Operator};
 
 pub fn ready_inputs() -> Vec<Operator> {
     let lines = io::stdin().lines();
@@ -11,5 +11,5 @@ pub fn ready_inputs() -> Vec<Operator> {
 
 fn main() {
     let operators = ready_inputs();
-    println!("{:?}", operators);
+    run_operators(operators);
 }

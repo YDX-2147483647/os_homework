@@ -1,20 +1,5 @@
-#[derive(Debug, PartialEq)]
-pub enum OperatorRole {
-    Reader,
-    Writer,
-}
-
-#[derive(Debug, PartialEq)]
-pub struct Operator {
-    /// 序号
-    pub id: u32,
-    /// 角色
-    pub role: OperatorRole,
-    /// 操作开始时刻，单位为秒，正数
-    pub start_at: f32,
-    /// 操作持续时间，正数
-    pub duration: f32,
-}
+mod operator;
+pub use operator::{run_operators, Operator, OperatorRole};
 
 #[derive(Debug)]
 pub enum OperatorParseError {
