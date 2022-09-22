@@ -2,7 +2,7 @@ use std::io;
 
 use clap::{Parser, ValueEnum};
 
-use ex_2::{run_read_preferring, Operator, ReporterConfig};
+use ex_2::{run_read_preferring, run_write_preferring, Operator, ReporterConfig};
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -41,6 +41,7 @@ fn main() {
 
     match args.policy {
         Policy::ReadPreferring => run_read_preferring(operators, config),
+        Policy::WritePreferring => run_write_preferring(operators, config),
         _ => eprintln!("Not implemented yet."),
     }
 }
