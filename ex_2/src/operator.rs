@@ -26,6 +26,17 @@ pub struct Reporter {
     now: Instant,
 }
 
+pub enum Action {
+    /// 创建线程
+    Create,
+    /// 申请操作
+    Request,
+    /// 开始操作
+    Start,
+    /// 结束操作
+    End,
+}
+
 impl Reporter {
     pub fn new() -> Reporter {
         Reporter {
@@ -33,12 +44,17 @@ impl Reporter {
         }
     }
 
-    pub fn report(&self, who: &Operator, words: &str) {
+    pub fn report(&self, who: &Operator, action: Action) {
         println!(
             "{:6.3} s | #{}：{}。",
             self.now.elapsed().as_millis() as f32 / 1000.,
             who.id,
-            words,
+            match action {
+                Action::Create => "🚀创建",
+                Action::Request => "❓申请",
+                Action::Start => "🏁开始读取",
+                Action::End => "🛑结束读取",
+            },
         );
     }
 }
@@ -58,11 +74,11 @@ pub fn run_operators(operators: Vec<Operator>) {
         match o.role {
             OperatorRole::Reader => {
                 handles.push(thread::spawn(move || {
-                    reporter.report(&o, "🚀创建");
+                    reporter.report(&o, Action::Create);
 
                     thread::sleep(Duration::from_secs_f32(o.start_at));
 
-                    reporter.report(&o, "❓申请");
+                    reporter.report(&o, Action::Request);
                     {
                         let mut n_readers = n_readers.lock().unwrap();
                         *n_readers += 1;
@@ -74,9 +90,9 @@ pub fn run_operators(operators: Vec<Operator>) {
                         }
                     }
 
-                    reporter.report(&o, "🏁开始读取");
+                    reporter.report(&o, Action::Start);
                     thread::sleep(Duration::from_secs_f32(o.duration));
-                    reporter.report(&o, "🛑结束读取");
+                    reporter.report(&o, Action::End);
 
                     {
                         let mut n_readers = n_readers.lock().unwrap();
