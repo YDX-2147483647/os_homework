@@ -167,3 +167,79 @@ pub fn run_write_preferring(operators: Vec<Operator>, config: ReporterConfig) {
         h.join().unwrap();
     }
 }
+
+/// 公平竞争方案
+///
+/// This solves the [third readers-writers problem](https://en.wikipedia.org/wiki/Readers%E2%80%93writers_problem#Third_readers%E2%80%93writers_problem).
+///
+/// 所有操作者都要在`service`的等待队列中排队，从而保证公平。
+pub fn run_unspecified_priority(operators: Vec<Operator>, config: ReporterConfig) {
+    let access = Arc::new((Mutex::new(true), Condvar::new()));
+    let service = Arc::new((Mutex::new(true), Condvar::new()));
+    let n_readers = Arc::new(Mutex::new(0));
+
+    let reporter = Arc::new(Reporter::new(config));
+
+    let mut handles = Vec::new();
+    for o in operators {
+        let access = access.clone();
+        let service = service.clone();
+        let n_readers = n_readers.clone();
+        let reporter = reporter.clone();
+
+        match o.role {
+            OperatorRole::Reader => handles.push(thread::spawn(move || {
+                reporter.report(&o, Action::Create);
+
+                thread::sleep(Duration::from_secs_f32(o.start_at));
+
+                reporter.report(&o, Action::Request);
+                wait(&*service);
+                {
+                    let mut n_readers = n_readers.lock().unwrap();
+                    *n_readers += 1;
+
+                    // if I am the first
+                    if *n_readers == 1 {
+                        wait(&*access);
+                    }
+                }
+                signal(&*service);
+
+                reporter.report(&o, Action::Start);
+                thread::sleep(Duration::from_secs_f32(o.duration));
+                reporter.report(&o, Action::End);
+
+                {
+                    let mut n_readers = n_readers.lock().unwrap();
+                    *n_readers -= 1;
+
+                    // if I am the last
+                    if *n_readers == 0 {
+                        signal(&*access);
+                    }
+                }
+            })),
+            OperatorRole::Writer => handles.push(thread::spawn(move || {
+                reporter.report(&o, Action::Create);
+
+                thread::sleep(Duration::from_secs_f32(o.start_at));
+
+                reporter.report(&o, Action::Request);
+                wait(&*service);
+                wait(&*access);
+                signal(&*service);
+
+                reporter.report(&o, Action::Start);
+                thread::sleep(Duration::from_secs_f32(o.duration));
+                reporter.report(&o, Action::End);
+
+                signal(&*access);
+            })),
+        }
+    }
+
+    for h in handles {
+        h.join().unwrap();
+    }
+}
