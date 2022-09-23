@@ -46,9 +46,33 @@ impl Markdown for Record {
     }
 }
 
-struct Section {
+pub struct Section {
     schedule: Vec<Record>,
 }
+
+impl Section {
+    pub fn new() -> Section {
+        Section {
+            schedule: Vec::new(),
+        }
+    }
+
+    pub fn push_task(&mut self, task: String, start_at: Duration, end_at: Duration) {
+        self.schedule.push(Record::Task(Task {
+            name: task,
+            start_at,
+            end_at,
+        }))
+    }
+
+    pub fn push_milestone(&mut self, milestone: String, at: Duration) {
+        self.schedule.push(Record::Milestone(Milestone {
+            name: milestone,
+            at,
+        }))
+    }
+}
+
 impl Markdown for Section {
     fn to_md(&self) -> Vec<String> {
         let mut rows = vec![];
@@ -71,24 +95,23 @@ impl Gantt {
     }
 
     pub fn push_task(&mut self, section: &str, task: String, start_at: Duration, end_at: Duration) {
-        let section = self.sections.entry(section.to_string()).or_insert(Section {
-            schedule: Vec::new(),
-        });
-        section.schedule.push(Record::Task(Task {
-            name: task,
-            start_at,
-            end_at,
-        }))
+        self.sections
+            .entry(section.to_string())
+            .or_insert(Section::new())
+            .push_task(task, start_at, end_at);
     }
 
     pub fn push_milestone(&mut self, section: &str, milestone: String, at: Duration) {
-        let section = self.sections.entry(section.to_string()).or_insert(Section {
-            schedule: Vec::new(),
-        });
-        section.schedule.push(Record::Milestone(Milestone {
-            name: milestone,
-            at,
-        }))
+        self.sections
+            .entry(section.to_string())
+            .or_insert(Section::new())
+            .push_milestone(milestone, at);
+    }
+
+    /// If the graph did not have this section, `None` is returned.
+    /// Otherwise the section is updated, and the old section is returned. The section's name is not updated, though.
+    pub fn add_section(&mut self, name: String, section: Section) -> Option<Section> {
+        self.sections.insert(name, section)
     }
 
     pub fn to_md(&self) -> Vec<String> {
@@ -146,5 +169,30 @@ mod tests {
     fn time_formatting() {
         assert_eq!(format_time(&Duration::new(4, 0)), "04.000");
         assert_eq!(format_time(&Duration::from_millis(1234)), "01.234");
+    }
+
+    #[test]
+    fn adding_a_section() {
+        let mut section = Section::new();
+        section.push_task(
+            "task".to_string(),
+            Duration::from_secs(0),
+            Duration::from_secs(1),
+        );
+
+        let mut gantt = Gantt::new();
+        gantt.add_section("Saturday".to_string(), section);
+
+        assert_eq!(
+            gantt.to_md(),
+            [
+                "gantt",
+                "dateFormat ss.SSS",
+                "axisFormat %S.%L s",
+                "",
+                "section Saturday",
+                "task: 00.000, 01.000",
+            ]
+        );
     }
 }
