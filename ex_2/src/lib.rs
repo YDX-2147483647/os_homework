@@ -1,3 +1,4 @@
+mod gantt;
 mod operator;
 mod semaphore;
 mod solutions;
