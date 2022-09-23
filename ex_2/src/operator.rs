@@ -36,7 +36,7 @@ impl Operator {
     /// use ex_2::*;
     ///
     /// assert_eq!(
-    ///     parse_operator("1 R 3.3 5").unwrap(),
+    ///     Operator::from("1 R 3.3 5").unwrap(),
     ///     Operator {
     ///         id: 1,
     ///         role: OperatorRole::Reader,

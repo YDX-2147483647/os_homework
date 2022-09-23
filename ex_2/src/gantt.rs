@@ -27,7 +27,6 @@ enum Record {
 
 impl Markdown for Record {
     fn to_md(&self) -> Vec<String> {
-        // to do date format
         let row = match self {
             Record::Milestone(Milestone { name, at }) => {
                 format!("{}: milestone, {}, 0", name, format_time(at))
@@ -99,10 +98,13 @@ impl Gantt {
             "axisFormat %S.%L s".to_string(),
         ];
 
-        for (name, section) in self.sections.iter() {
+        let mut names: Vec<_> = self.sections.keys().collect();
+        names.sort_unstable();
+
+        for name in names.iter() {
             rows.push("".to_string());
             rows.push(format!("section {}", name));
-            rows.extend(section.to_md());
+            rows.extend(self.sections.get(*name).unwrap().to_md());
         }
 
         rows
