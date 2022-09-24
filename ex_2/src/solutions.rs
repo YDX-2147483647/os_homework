@@ -17,14 +17,13 @@ pub fn run_read_preferring(operators: Vec<Operator>, config: ReporterConfig) {
     let now = Instant::now();
 
     let (tx, rx) = mpsc::channel();
-    let mut handles = Vec::new();
     for o in operators {
         let access = Arc::clone(&access);
         let n_readers = Arc::clone(&n_readers);
         let tx = tx.clone();
 
         match o.role {
-            OperatorRole::Reader => handles.push(thread::spawn(move || {
+            OperatorRole::Reader => thread::spawn(move || {
                 tx.send((o.id, Action::Create, now.elapsed())).unwrap();
 
                 thread::sleep(Duration::from_secs_f32(o.start_at));
@@ -53,8 +52,8 @@ pub fn run_read_preferring(operators: Vec<Operator>, config: ReporterConfig) {
                         signal(&*access);
                     }
                 }
-            })),
-            OperatorRole::Writer => handles.push(thread::spawn(move || {
+            }),
+            OperatorRole::Writer => thread::spawn(move || {
                 tx.send((o.id, Action::Create, now.elapsed())).unwrap();
 
                 thread::sleep(Duration::from_secs_f32(o.start_at));
@@ -68,7 +67,7 @@ pub fn run_read_preferring(operators: Vec<Operator>, config: ReporterConfig) {
                 tx.send((o.id, Action::EndWrite, now.elapsed())).unwrap();
 
                 signal(&*access);
-            })),
+            }),
         };
     }
 
@@ -92,7 +91,6 @@ pub fn run_write_preferring(operators: Vec<Operator>, config: ReporterConfig) {
     let now = Instant::now();
 
     let (tx, rx) = mpsc::channel();
-    let mut handles = Vec::new();
     for o in operators {
         let access = access.clone();
         let n_readers = n_readers.clone();
@@ -101,7 +99,7 @@ pub fn run_write_preferring(operators: Vec<Operator>, config: ReporterConfig) {
         let tx = tx.clone();
 
         match o.role {
-            OperatorRole::Reader => handles.push(thread::spawn(move || {
+            OperatorRole::Reader => thread::spawn(move || {
                 tx.send((o.id, Action::Create, now.elapsed())).unwrap();
 
                 thread::sleep(Duration::from_secs_f32(o.start_at));
@@ -132,8 +130,8 @@ pub fn run_write_preferring(operators: Vec<Operator>, config: ReporterConfig) {
                         signal(&*access);
                     }
                 }
-            })),
-            OperatorRole::Writer => handles.push(thread::spawn(move || {
+            }),
+            OperatorRole::Writer => thread::spawn(move || {
                 tx.send((o.id, Action::Create, now.elapsed())).unwrap();
 
                 thread::sleep(Duration::from_secs_f32(o.start_at));
@@ -165,7 +163,7 @@ pub fn run_write_preferring(operators: Vec<Operator>, config: ReporterConfig) {
                         signal(&*can_reader_acquire);
                     }
                 }
-            })),
+            }),
         };
     }
 
@@ -189,7 +187,6 @@ pub fn run_unspecified_priority(operators: Vec<Operator>, config: ReporterConfig
     let now = Instant::now();
 
     let (tx, rx) = mpsc::channel();
-    let mut handles = Vec::new();
     for o in operators {
         let access = access.clone();
         let service = service.clone();
@@ -197,7 +194,7 @@ pub fn run_unspecified_priority(operators: Vec<Operator>, config: ReporterConfig
         let tx = tx.clone();
 
         match o.role {
-            OperatorRole::Reader => handles.push(thread::spawn(move || {
+            OperatorRole::Reader => thread::spawn(move || {
                 tx.send((o.id, Action::Create, now.elapsed())).unwrap();
 
                 thread::sleep(Duration::from_secs_f32(o.start_at));
@@ -228,8 +225,8 @@ pub fn run_unspecified_priority(operators: Vec<Operator>, config: ReporterConfig
                         signal(&*access);
                     }
                 }
-            })),
-            OperatorRole::Writer => handles.push(thread::spawn(move || {
+            }),
+            OperatorRole::Writer => thread::spawn(move || {
                 tx.send((o.id, Action::Create, now.elapsed())).unwrap();
 
                 thread::sleep(Duration::from_secs_f32(o.start_at));
@@ -245,8 +242,8 @@ pub fn run_unspecified_priority(operators: Vec<Operator>, config: ReporterConfig
                 tx.send((o.id, Action::EndWrite, now.elapsed())).unwrap();
 
                 signal(&*access);
-            })),
-        }
+            }),
+        };
     }
 
     drop(tx);
