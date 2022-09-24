@@ -1,5 +1,6 @@
 use std::{io, sync::mpsc};
 
+use arboard::Clipboard;
 use clap::{Parser, ValueEnum};
 
 use ex_2::{
@@ -51,5 +52,9 @@ fn main() {
 
     let mut reporter = Reporter::new(config);
     reporter.receive(rx);
-    println!("{}", reporter.draw().join("\n"));
+    Clipboard::new()
+        .unwrap()
+        .set_text(reporter.draw().join("\n"))
+        .unwrap();
+    println!("I've copied to your clipboard. Try to paste it into https://mermaid.live/ .");
 }
