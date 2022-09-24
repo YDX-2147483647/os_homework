@@ -1,7 +1,8 @@
-mod gantt;
 mod operator;
+mod reports;
 mod semaphore;
 mod solutions;
 
-pub use operator::{Action, Operator, OperatorParseError, OperatorRole, Reporter, ReporterConfig};
+pub use operator::{Operator, OperatorParseError, OperatorRole};
+pub use reports::{Action, Report, Reporter, ReporterConfig};
 pub use solutions::*;

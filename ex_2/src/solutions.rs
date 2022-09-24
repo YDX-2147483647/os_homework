@@ -1,11 +1,11 @@
 use std::{
-    sync::{Arc, Condvar, Mutex},
+    sync::{mpsc, Arc, Condvar, Mutex},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use super::semaphore::{signal, wait};
-use crate::{Action, Operator, OperatorRole, Reporter, ReporterConfig};
+use crate::{Action, Operator, OperatorRole, Report, Reporter, ReporterConfig};
 
 /// 读者优先方案
 ///
@@ -14,21 +14,32 @@ pub fn run_read_preferring(operators: Vec<Operator>, config: ReporterConfig) {
     let access = Arc::new((Mutex::new(true), Condvar::new()));
     let n_readers = Arc::new(Mutex::new(0));
 
-    let reporter = Arc::new(Reporter::new(config));
+    let now = Instant::now();
 
+    let (tx, rx) = mpsc::channel();
     let mut handles = Vec::new();
     for o in operators {
         let access = Arc::clone(&access);
         let n_readers = Arc::clone(&n_readers);
-        let reporter = Arc::clone(&reporter);
+        let tx = tx.clone();
 
         match o.role {
             OperatorRole::Reader => handles.push(thread::spawn(move || {
-                reporter.report(&o, Action::Create);
+                tx.send(Report {
+                    action: Action::Create,
+                    at: now.elapsed(),
+                    who: o.id,
+                })
+                .unwrap();
 
                 thread::sleep(Duration::from_secs_f32(o.start_at));
 
-                reporter.report(&o, Action::Request);
+                tx.send(Report {
+                    action: Action::RequestRead,
+                    at: now.elapsed(),
+                    who: o.id,
+                })
+                .unwrap();
                 {
                     let mut n_readers = n_readers.lock().unwrap();
                     *n_readers += 1;
@@ -39,9 +50,19 @@ pub fn run_read_preferring(operators: Vec<Operator>, config: ReporterConfig) {
                     }
                 }
 
-                reporter.report(&o, Action::Start);
+                tx.send(Report {
+                    action: Action::StartRead,
+                    at: now.elapsed(),
+                    who: o.id,
+                })
+                .unwrap();
                 thread::sleep(Duration::from_secs_f32(o.duration));
-                reporter.report(&o, Action::End);
+                tx.send(Report {
+                    action: Action::EndRead,
+                    at: now.elapsed(),
+                    who: o.id,
+                })
+                .unwrap();
 
                 {
                     let mut n_readers = n_readers.lock().unwrap();
@@ -54,25 +75,47 @@ pub fn run_read_preferring(operators: Vec<Operator>, config: ReporterConfig) {
                 }
             })),
             OperatorRole::Writer => handles.push(thread::spawn(move || {
-                reporter.report(&o, Action::Create);
+                tx.send(Report {
+                    action: Action::Create,
+                    at: now.elapsed(),
+                    who: o.id,
+                })
+                .unwrap();
 
                 thread::sleep(Duration::from_secs_f32(o.start_at));
 
-                reporter.report(&o, Action::Request);
+                tx.send(Report {
+                    action: Action::RequestWrite,
+                    at: now.elapsed(),
+                    who: o.id,
+                })
+                .unwrap();
                 wait(&*access);
 
-                reporter.report(&o, Action::Start);
+                tx.send(Report {
+                    action: Action::StartWrite,
+                    at: now.elapsed(),
+                    who: o.id,
+                })
+                .unwrap();
                 thread::sleep(Duration::from_secs_f32(o.duration));
-                reporter.report(&o, Action::End);
+                tx.send(Report {
+                    action: Action::EndWrite,
+                    at: now.elapsed(),
+                    who: o.id,
+                })
+                .unwrap();
 
                 signal(&*access);
             })),
         };
     }
 
-    for h in handles {
-        h.join().unwrap();
-    }
+    drop(tx);
+
+    let mut drawer = Reporter::new(config);
+    drawer.receive(rx);
+    println!("{}", drawer.draw().join("\n"));
 }
 
 /// 写者优先方案
@@ -85,23 +128,34 @@ pub fn run_write_preferring(operators: Vec<Operator>, config: ReporterConfig) {
 
     let can_reader_acquire = Arc::new((Mutex::new(true), Condvar::new()));
 
-    let reporter = Arc::new(Reporter::new(config));
+    let now = Instant::now();
 
+    let (tx, rx) = mpsc::channel();
     let mut handles = Vec::new();
     for o in operators {
         let access = access.clone();
         let n_readers = n_readers.clone();
         let n_writers = n_writers.clone();
         let can_reader_acquire = can_reader_acquire.clone();
-        let reporter = reporter.clone();
+        let tx = tx.clone();
 
         match o.role {
             OperatorRole::Reader => handles.push(thread::spawn(move || {
-                reporter.report(&o, Action::Create);
+                tx.send(Report {
+                    action: Action::Create,
+                    at: now.elapsed(),
+                    who: o.id,
+                })
+                .unwrap();
 
                 thread::sleep(Duration::from_secs_f32(o.start_at));
 
-                reporter.report(&o, Action::Request);
+                tx.send(Report {
+                    action: Action::RequestRead,
+                    at: now.elapsed(),
+                    who: o.id,
+                })
+                .unwrap();
                 wait(&*can_reader_acquire);
                 {
                     let mut n_readers = n_readers.lock().unwrap();
@@ -114,9 +168,19 @@ pub fn run_write_preferring(operators: Vec<Operator>, config: ReporterConfig) {
                 }
                 signal(&*can_reader_acquire);
 
-                reporter.report(&o, Action::Start);
+                tx.send(Report {
+                    action: Action::StartRead,
+                    at: now.elapsed(),
+                    who: o.id,
+                })
+                .unwrap();
                 thread::sleep(Duration::from_secs_f32(o.duration));
-                reporter.report(&o, Action::End);
+                tx.send(Report {
+                    action: Action::EndRead,
+                    at: now.elapsed(),
+                    who: o.id,
+                })
+                .unwrap();
 
                 {
                     let mut n_readers = n_readers.lock().unwrap();
@@ -129,11 +193,21 @@ pub fn run_write_preferring(operators: Vec<Operator>, config: ReporterConfig) {
                 }
             })),
             OperatorRole::Writer => handles.push(thread::spawn(move || {
-                reporter.report(&o, Action::Create);
+                tx.send(Report {
+                    action: Action::Create,
+                    at: now.elapsed(),
+                    who: o.id,
+                })
+                .unwrap();
 
                 thread::sleep(Duration::from_secs_f32(o.start_at));
 
-                reporter.report(&o, Action::Request);
+                tx.send(Report {
+                    action: Action::RequestWrite,
+                    at: now.elapsed(),
+                    who: o.id,
+                })
+                .unwrap();
                 {
                     let mut n_writers = n_writers.lock().unwrap();
                     *n_writers += 1;
@@ -145,9 +219,19 @@ pub fn run_write_preferring(operators: Vec<Operator>, config: ReporterConfig) {
                 }
 
                 wait(&*access);
-                reporter.report(&o, Action::Start);
+                tx.send(Report {
+                    action: Action::StartWrite,
+                    at: now.elapsed(),
+                    who: o.id,
+                })
+                .unwrap();
                 thread::sleep(Duration::from_secs_f32(o.duration));
-                reporter.report(&o, Action::End);
+                tx.send(Report {
+                    action: Action::EndWrite,
+                    at: now.elapsed(),
+                    who: o.id,
+                })
+                .unwrap();
                 signal(&*access);
 
                 {
@@ -163,9 +247,11 @@ pub fn run_write_preferring(operators: Vec<Operator>, config: ReporterConfig) {
         };
     }
 
-    for h in handles {
-        h.join().unwrap();
-    }
+    drop(tx);
+
+    let mut drawer = Reporter::new(config);
+    drawer.receive(rx);
+    println!("{}", drawer.draw().join("\n"));
 }
 
 /// 公平竞争方案
@@ -178,22 +264,33 @@ pub fn run_unspecified_priority(operators: Vec<Operator>, config: ReporterConfig
     let service = Arc::new((Mutex::new(true), Condvar::new()));
     let n_readers = Arc::new(Mutex::new(0));
 
-    let reporter = Arc::new(Reporter::new(config));
+    let now = Instant::now();
 
+    let (tx, rx) = mpsc::channel();
     let mut handles = Vec::new();
     for o in operators {
         let access = access.clone();
         let service = service.clone();
         let n_readers = n_readers.clone();
-        let reporter = reporter.clone();
+        let tx = tx.clone();
 
         match o.role {
             OperatorRole::Reader => handles.push(thread::spawn(move || {
-                reporter.report(&o, Action::Create);
+                tx.send(Report {
+                    action: Action::Create,
+                    at: now.elapsed(),
+                    who: o.id,
+                })
+                .unwrap();
 
                 thread::sleep(Duration::from_secs_f32(o.start_at));
 
-                reporter.report(&o, Action::Request);
+                tx.send(Report {
+                    action: Action::RequestRead,
+                    at: now.elapsed(),
+                    who: o.id,
+                })
+                .unwrap();
                 wait(&*service);
                 {
                     let mut n_readers = n_readers.lock().unwrap();
@@ -206,9 +303,19 @@ pub fn run_unspecified_priority(operators: Vec<Operator>, config: ReporterConfig
                 }
                 signal(&*service);
 
-                reporter.report(&o, Action::Start);
+                tx.send(Report {
+                    action: Action::StartRead,
+                    at: now.elapsed(),
+                    who: o.id,
+                })
+                .unwrap();
                 thread::sleep(Duration::from_secs_f32(o.duration));
-                reporter.report(&o, Action::End);
+                tx.send(Report {
+                    action: Action::EndRead,
+                    at: now.elapsed(),
+                    who: o.id,
+                })
+                .unwrap();
 
                 {
                     let mut n_readers = n_readers.lock().unwrap();
@@ -221,25 +328,47 @@ pub fn run_unspecified_priority(operators: Vec<Operator>, config: ReporterConfig
                 }
             })),
             OperatorRole::Writer => handles.push(thread::spawn(move || {
-                reporter.report(&o, Action::Create);
+                tx.send(Report {
+                    action: Action::Create,
+                    at: now.elapsed(),
+                    who: o.id,
+                })
+                .unwrap();
 
                 thread::sleep(Duration::from_secs_f32(o.start_at));
 
-                reporter.report(&o, Action::Request);
+                tx.send(Report {
+                    action: Action::RequestWrite,
+                    at: now.elapsed(),
+                    who: o.id,
+                })
+                .unwrap();
                 wait(&*service);
                 wait(&*access);
                 signal(&*service);
 
-                reporter.report(&o, Action::Start);
+                tx.send(Report {
+                    action: Action::StartWrite,
+                    at: now.elapsed(),
+                    who: o.id,
+                })
+                .unwrap();
                 thread::sleep(Duration::from_secs_f32(o.duration));
-                reporter.report(&o, Action::End);
+                tx.send(Report {
+                    action: Action::EndWrite,
+                    at: now.elapsed(),
+                    who: o.id,
+                })
+                .unwrap();
 
                 signal(&*access);
             })),
         }
     }
 
-    for h in handles {
-        h.join().unwrap();
-    }
+    drop(tx);
+
+    let mut drawer = Reporter::new(config);
+    drawer.receive(rx);
+    println!("{}", drawer.draw().join("\n"));
 }

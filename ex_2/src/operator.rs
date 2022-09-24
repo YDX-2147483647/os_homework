@@ -1,5 +1,3 @@
-use std::time::Instant;
-
 #[derive(Debug, PartialEq)]
 pub enum OperatorRole {
     Reader,
@@ -90,62 +88,5 @@ impl Operator {
             start_at,
             duration,
         })
-    }
-}
-
-pub struct Reporter {
-    /// 初始时刻
-    now: Instant,
-    /// 打印信息时每个进程缩进的数量
-    tab: u8,
-}
-
-pub struct ReporterConfig {
-    /// 打印信息时每个进程缩进的数量
-    pub tab: u8,
-}
-
-pub enum Action {
-    /// 创建线程
-    Create,
-    /// 申请操作
-    Request,
-    /// 开始操作
-    Start,
-    /// 结束操作
-    End,
-}
-
-impl Reporter {
-    pub fn new(ReporterConfig { tab }: ReporterConfig) -> Reporter {
-        Reporter {
-            now: Instant::now(),
-            tab,
-        }
-    }
-
-    pub fn report(&self, who: &Operator, action: Action) {
-        println!(
-            "{:6.3} s |{:indent$}#{}：{}。",
-            self.now.elapsed().as_millis() as f32 / 1000.,
-            " ",
-            who.id,
-            match action {
-                Action::Create => "🚀创建",
-                Action::Request => match who.role {
-                    OperatorRole::Reader => "🔔👀申请读取",
-                    OperatorRole::Writer => "🔔📝申请写入",
-                },
-                Action::Start => match who.role {
-                    OperatorRole::Reader => "🏁👀开始读取",
-                    OperatorRole::Writer => "🏁📝开始写入",
-                },
-                Action::End => match who.role {
-                    OperatorRole::Reader => "🛑👀结束读取",
-                    OperatorRole::Writer => "🛑📝结束写入",
-                },
-            },
-            indent = (who.id % 8) as usize * self.tab as usize
-        );
     }
 }
