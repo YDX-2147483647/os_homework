@@ -46,7 +46,7 @@ fn signal(semaphore) {
 }
 ```
 
-在多个线程各自`wait`、`signal`同一信号量，可以解决同步问题。在每一线程先后`wait`、`signal`同一信号量，可以解决互斥问题。
+在多个线程各自`wait`、`signal`同一公用信号量，可以解决同步问题。在每一线程先后`wait`、`signal`同一私用信号量，可以解决互斥问题。
 
 ### 读者—写者问题
 
@@ -68,7 +68,7 @@ fn signal(semaphore) {
 
 > 另请参阅自动生成的文档：`cargo doc --open`或手动打开`target/doc/ex_2/index.html`。那里会有更细节的东西，比如`id`存储时是用多少位整数。
 
-### `Operator`操作员
+### 操作员`Operator`（`operator.rs`）
 
 #### 结构
 
@@ -106,7 +106,7 @@ pub enum OperatorRole {
 
   从 stdin 读取若干行，解析为`Operator`列表。
 
-### 同步方案`run_○○(…)`
+### 同步方案`run_○○(…)`（`solutions.rs`）
 
 每种同步方案写成一个函数。
 
@@ -501,7 +501,106 @@ pub enum OperatorRole {
   classDef sema fill: orange;
   ```
 
-### `Semaphore`
+### 信号量`Semaphore`（`semaphore.rs`）
+
+#### 背景
+
+因为种种原因，Rust 标准库中的`sync::Semaphore`已经被淘汰了。在共享内存范畴内，可采用以下工具。
+
+- **互斥锁**`sync::Mutex`（mutual exclusion）
+
+  类似于只取两个值的信号量。
+
+  ```rust
+  let data = Arc::new(Mutex::new(0));
+  
+  thread::spawn(move || {
+      // --snip--
+      {
+          let mut data = data.lock().unwrap();
+          *data += 1;
+      }
+      // --snip--
+  });
+  ```
+
+  `data.lock()`拿锁，拿到前一直阻塞；它结束生命时释放锁。——互斥锁解决互斥问题，和私用信号量一样，获取锁和释放锁是在同一线程。
+
+  > 如果某条线程拿着锁时炸了，其它线程试图拿锁时`data.lock()`会返回`None`。
+
+- **条件变量**`sync::Condvar`（condition variable）
+
+  条件变量传递一个逻辑变量，可以阻塞线程。
+
+  ```rust
+  // --snip--
+  
+  // 子线程修改后通知主线程
+  thread::spawn(move|| {
+      let (lock, cvar) = &*pair2;
+      let mut started = lock.lock().unwrap();
+      *started = true;
+      cvar.notify_one();
+  });
+  
+  // 主线程在收到通知前一直阻塞
+  let (lock, cvar) = &*pair;
+  let mut started = lock.lock().unwrap();
+  while !*started {
+      // 这里不会忙等待，因为大部分时间阻塞在下面这行
+      started = cvar.wait(started).unwrap();
+  }
+  ```
+
+#### 设计
+
+- 私用信号量（互斥问题）：直接用`Mutex`。
+- 公用信号量（同步问题）：使用自制信号量`Semaphore`。
+
+最后我发现自制信号量非常简单……
+
+我们把`Mutex`、`Condvar`对~儿~当作信号量。前者保证原子性，后者阻塞线程。
+
+```rust
+use std::sync::{Condvar, Mutex};
+
+type Semaphore = (Mutex<bool>, Condvar);
+```
+
+> 因为本实验用到信号量的地方都只有一个资源，我就直接把信号量的值设计成`bool`了。
+
+下面来看 P、V 操作。
+
+```rust
+pub fn wait(semaphore: &Semaphore) {
+    let (lock, cvar) = semaphore;
+    let mut lock = lock.lock().unwrap();
+    while !*lock {
+        lock = cvar.wait(lock).unwrap();
+    }
+    *lock = false;
+}
+
+pub fn signal(semaphore: &Semaphore) {
+    let (lock, cvar) = semaphore;
+    let mut lock = lock.lock().unwrap();
+    *lock = true;
+    cvar.notify_one();
+}
+```
+
+- 二者都是原子操作，上来都先用`lock`锁住。
+
+  > 随即用信号量的值覆盖原来的`lock`变量。
+
+- `wait`
+
+  - 若有剩余资源，`*lock == true`，`while`进不去，直接占有资源（`*lock = false`），返回。
+  - 否则，用`cvar`阻塞当前线程。直到有人释放资源，然后重试。
+
+- `signal`
+
+  释放资源（`*lock = true`），用`cvar`通知他人。
 
 ### `Reporter`
 
