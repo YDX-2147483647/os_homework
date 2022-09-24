@@ -336,7 +336,7 @@ pub enum OperatorRole {
       init_access["access = Semaphore(true)"]
       init_n["n_readers = Mutex(0)"]
       n_w["n_writers = Mutex(0)"]
-      can["can_reader_acquire = Semaphore(false)"]
+      can["can_reader_acquire = Semaphore(true)"]
   end
   
   初始化 --> ell["…"]
@@ -400,6 +400,101 @@ pub enum OperatorRole {
       decrease["*n_readers -= 1"]
       --> if_last{*n_readers == 0}
       -->|是| signal["signal(access)"]:::sema
+  end
+  
+  classDef crit fill: red;
+  classDef sema fill: orange;
+  ```
+
+#### 公平竞争`run_unspecified_priority`
+
+所有操作员都要一起排队，从而保证公平。
+
+##### 原理
+
+1. 同前，设计信号量`access`、计数器`n_readers`、`n_readers`的互斥锁。
+
+2. 所有操作员排的队是一个信号量的等待队列，这个**信号量**称作**`service`**。
+
+   初始时，队是空的，取真即可。
+
+   ```rust
+   let service = Arc::new((Mutex::new(true), Condvar::new()));
+   ```
+
+   所有操作员申请`access`时都要在`service`排队，申请前`wait`，申请后`signal`。
+
+3. **检查**一下有没有破坏读者团体内允许。
+
+   读者的`service`区间几乎和`n_readers`的互斥锁一致，所以没破坏。
+
+##### 实现
+
+- **总体**
+
+  ```mermaid
+  flowchart LR
+  subgraph 初始化
+      direction LR
+      init_access["access = Semaphore(true)"]
+      init_n["n_readers = Mutex(0)"]
+      service["service = Semaphore(true)"]
+  end
+  
+  初始化 --> ell["…"]
+  ```
+
+- **写者**
+
+  ```mermaid
+  flowchart LR
+    create --> sleep["sleep(o.start_at)"]
+    --> wait_service["wait(service)"]:::sema
+    --> wait["wait(access)"]:::sema
+    --> signal_service["signal(service)"]:::sema
+    --> write:::crit
+    --> signal["signal(access)"]:::sema
+    
+    subgraph service
+        wait
+        signal_service
+    end
+    
+    subgraph access
+        write
+        signal
+    end
+    
+    classDef crit fill: red;
+    classDef sema fill: orange;
+  ```
+
+- **读者**
+
+  ```mermaid
+  flowchart LR
+  create --> sleep["sleep(o.start_at)"]
+  --> wait_service["wait(service)"]:::sema
+  --> enter
+  --> signal_service["signal(service)"]:::sema
+  --> write:::crit
+  --> exit
+  
+  subgraph service
+      enter
+      signal_service
+  end
+  
+  subgraph enter["n_readers的互斥锁"]
+    increase["*n_readers += 1"]
+    --> if_first{*n_readers == 1}
+    -->|是| wait["wait(access)"]:::sema
+  end
+  
+  subgraph exit["n_readers的互斥锁"]
+    decrease["*n_readers -= 1"]
+    --> if_last{*n_readers == 0}
+    -->|是| signal["signal(access)"]:::sema
   end
   
   classDef crit fill: red;
