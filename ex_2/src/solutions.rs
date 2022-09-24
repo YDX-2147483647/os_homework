@@ -5,7 +5,7 @@ use std::{
 };
 
 use super::semaphore::{signal, wait};
-use crate::{Action, Operator, OperatorRole, Report, Reporter, ReporterConfig};
+use crate::{Action, Operator, OperatorRole, Reporter, ReporterConfig};
 
 /// 读者优先方案
 ///
@@ -25,21 +25,11 @@ pub fn run_read_preferring(operators: Vec<Operator>, config: ReporterConfig) {
 
         match o.role {
             OperatorRole::Reader => handles.push(thread::spawn(move || {
-                tx.send(Report {
-                    action: Action::Create,
-                    at: now.elapsed(),
-                    who: o.id,
-                })
-                .unwrap();
+                tx.send((o.id, Action::Create, now.elapsed())).unwrap();
 
                 thread::sleep(Duration::from_secs_f32(o.start_at));
 
-                tx.send(Report {
-                    action: Action::RequestRead,
-                    at: now.elapsed(),
-                    who: o.id,
-                })
-                .unwrap();
+                tx.send((o.id, Action::RequestRead, now.elapsed())).unwrap();
                 {
                     let mut n_readers = n_readers.lock().unwrap();
                     *n_readers += 1;
@@ -50,19 +40,9 @@ pub fn run_read_preferring(operators: Vec<Operator>, config: ReporterConfig) {
                     }
                 }
 
-                tx.send(Report {
-                    action: Action::StartRead,
-                    at: now.elapsed(),
-                    who: o.id,
-                })
-                .unwrap();
+                tx.send((o.id, Action::StartRead, now.elapsed())).unwrap();
                 thread::sleep(Duration::from_secs_f32(o.duration));
-                tx.send(Report {
-                    action: Action::EndRead,
-                    at: now.elapsed(),
-                    who: o.id,
-                })
-                .unwrap();
+                tx.send((o.id, Action::EndRead, now.elapsed())).unwrap();
 
                 {
                     let mut n_readers = n_readers.lock().unwrap();
@@ -75,36 +55,17 @@ pub fn run_read_preferring(operators: Vec<Operator>, config: ReporterConfig) {
                 }
             })),
             OperatorRole::Writer => handles.push(thread::spawn(move || {
-                tx.send(Report {
-                    action: Action::Create,
-                    at: now.elapsed(),
-                    who: o.id,
-                })
-                .unwrap();
+                tx.send((o.id, Action::Create, now.elapsed())).unwrap();
 
                 thread::sleep(Duration::from_secs_f32(o.start_at));
 
-                tx.send(Report {
-                    action: Action::RequestWrite,
-                    at: now.elapsed(),
-                    who: o.id,
-                })
-                .unwrap();
+                tx.send((o.id, Action::RequestWrite, now.elapsed()))
+                    .unwrap();
                 wait(&*access);
 
-                tx.send(Report {
-                    action: Action::StartWrite,
-                    at: now.elapsed(),
-                    who: o.id,
-                })
-                .unwrap();
+                tx.send((o.id, Action::StartWrite, now.elapsed())).unwrap();
                 thread::sleep(Duration::from_secs_f32(o.duration));
-                tx.send(Report {
-                    action: Action::EndWrite,
-                    at: now.elapsed(),
-                    who: o.id,
-                })
-                .unwrap();
+                tx.send((o.id, Action::EndWrite, now.elapsed())).unwrap();
 
                 signal(&*access);
             })),
@@ -141,21 +102,11 @@ pub fn run_write_preferring(operators: Vec<Operator>, config: ReporterConfig) {
 
         match o.role {
             OperatorRole::Reader => handles.push(thread::spawn(move || {
-                tx.send(Report {
-                    action: Action::Create,
-                    at: now.elapsed(),
-                    who: o.id,
-                })
-                .unwrap();
+                tx.send((o.id, Action::Create, now.elapsed())).unwrap();
 
                 thread::sleep(Duration::from_secs_f32(o.start_at));
 
-                tx.send(Report {
-                    action: Action::RequestRead,
-                    at: now.elapsed(),
-                    who: o.id,
-                })
-                .unwrap();
+                tx.send((o.id, Action::RequestRead, now.elapsed())).unwrap();
                 wait(&*can_reader_acquire);
                 {
                     let mut n_readers = n_readers.lock().unwrap();
@@ -168,19 +119,9 @@ pub fn run_write_preferring(operators: Vec<Operator>, config: ReporterConfig) {
                 }
                 signal(&*can_reader_acquire);
 
-                tx.send(Report {
-                    action: Action::StartRead,
-                    at: now.elapsed(),
-                    who: o.id,
-                })
-                .unwrap();
+                tx.send((o.id, Action::StartRead, now.elapsed())).unwrap();
                 thread::sleep(Duration::from_secs_f32(o.duration));
-                tx.send(Report {
-                    action: Action::EndRead,
-                    at: now.elapsed(),
-                    who: o.id,
-                })
-                .unwrap();
+                tx.send((o.id, Action::EndRead, now.elapsed())).unwrap();
 
                 {
                     let mut n_readers = n_readers.lock().unwrap();
@@ -193,21 +134,12 @@ pub fn run_write_preferring(operators: Vec<Operator>, config: ReporterConfig) {
                 }
             })),
             OperatorRole::Writer => handles.push(thread::spawn(move || {
-                tx.send(Report {
-                    action: Action::Create,
-                    at: now.elapsed(),
-                    who: o.id,
-                })
-                .unwrap();
+                tx.send((o.id, Action::Create, now.elapsed())).unwrap();
 
                 thread::sleep(Duration::from_secs_f32(o.start_at));
 
-                tx.send(Report {
-                    action: Action::RequestWrite,
-                    at: now.elapsed(),
-                    who: o.id,
-                })
-                .unwrap();
+                tx.send((o.id, Action::RequestWrite, now.elapsed()))
+                    .unwrap();
                 {
                     let mut n_writers = n_writers.lock().unwrap();
                     *n_writers += 1;
@@ -219,19 +151,9 @@ pub fn run_write_preferring(operators: Vec<Operator>, config: ReporterConfig) {
                 }
 
                 wait(&*access);
-                tx.send(Report {
-                    action: Action::StartWrite,
-                    at: now.elapsed(),
-                    who: o.id,
-                })
-                .unwrap();
+                tx.send((o.id, Action::StartWrite, now.elapsed())).unwrap();
                 thread::sleep(Duration::from_secs_f32(o.duration));
-                tx.send(Report {
-                    action: Action::EndWrite,
-                    at: now.elapsed(),
-                    who: o.id,
-                })
-                .unwrap();
+                tx.send((o.id, Action::EndWrite, now.elapsed())).unwrap();
                 signal(&*access);
 
                 {
@@ -276,21 +198,11 @@ pub fn run_unspecified_priority(operators: Vec<Operator>, config: ReporterConfig
 
         match o.role {
             OperatorRole::Reader => handles.push(thread::spawn(move || {
-                tx.send(Report {
-                    action: Action::Create,
-                    at: now.elapsed(),
-                    who: o.id,
-                })
-                .unwrap();
+                tx.send((o.id, Action::Create, now.elapsed())).unwrap();
 
                 thread::sleep(Duration::from_secs_f32(o.start_at));
 
-                tx.send(Report {
-                    action: Action::RequestRead,
-                    at: now.elapsed(),
-                    who: o.id,
-                })
-                .unwrap();
+                tx.send((o.id, Action::RequestRead, now.elapsed())).unwrap();
                 wait(&*service);
                 {
                     let mut n_readers = n_readers.lock().unwrap();
@@ -303,19 +215,9 @@ pub fn run_unspecified_priority(operators: Vec<Operator>, config: ReporterConfig
                 }
                 signal(&*service);
 
-                tx.send(Report {
-                    action: Action::StartRead,
-                    at: now.elapsed(),
-                    who: o.id,
-                })
-                .unwrap();
+                tx.send((o.id, Action::StartRead, now.elapsed())).unwrap();
                 thread::sleep(Duration::from_secs_f32(o.duration));
-                tx.send(Report {
-                    action: Action::EndRead,
-                    at: now.elapsed(),
-                    who: o.id,
-                })
-                .unwrap();
+                tx.send((o.id, Action::EndRead, now.elapsed())).unwrap();
 
                 {
                     let mut n_readers = n_readers.lock().unwrap();
@@ -328,38 +230,19 @@ pub fn run_unspecified_priority(operators: Vec<Operator>, config: ReporterConfig
                 }
             })),
             OperatorRole::Writer => handles.push(thread::spawn(move || {
-                tx.send(Report {
-                    action: Action::Create,
-                    at: now.elapsed(),
-                    who: o.id,
-                })
-                .unwrap();
+                tx.send((o.id, Action::Create, now.elapsed())).unwrap();
 
                 thread::sleep(Duration::from_secs_f32(o.start_at));
 
-                tx.send(Report {
-                    action: Action::RequestWrite,
-                    at: now.elapsed(),
-                    who: o.id,
-                })
-                .unwrap();
+                tx.send((o.id, Action::RequestWrite, now.elapsed()))
+                    .unwrap();
                 wait(&*service);
                 wait(&*access);
                 signal(&*service);
 
-                tx.send(Report {
-                    action: Action::StartWrite,
-                    at: now.elapsed(),
-                    who: o.id,
-                })
-                .unwrap();
+                tx.send((o.id, Action::StartWrite, now.elapsed())).unwrap();
                 thread::sleep(Duration::from_secs_f32(o.duration));
-                tx.send(Report {
-                    action: Action::EndWrite,
-                    at: now.elapsed(),
-                    who: o.id,
-                })
-                .unwrap();
+                tx.send((o.id, Action::EndWrite, now.elapsed())).unwrap();
 
                 signal(&*access);
             })),

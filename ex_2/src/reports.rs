@@ -35,12 +35,6 @@ pub struct ReporterConfig {
     pub tab: u8,
 }
 
-pub struct Report {
-    pub who: u32,
-    pub action: Action,
-    pub at: Duration,
-}
-
 impl Reporter {
     pub fn new(config: ReporterConfig) -> Reporter {
         Reporter {
@@ -50,8 +44,11 @@ impl Reporter {
         }
     }
 
-    pub fn receive(&mut self, rx: Receiver<Report>) {
-        for Report { who, action, at } in rx {
+    /// Receive reports
+    ///
+    /// Reports format: (who, action, now.elapsed())
+    pub fn receive(&mut self, rx: Receiver<(u32, Action, Duration)>) {
+        for (who, action, at) in rx {
             let who_str = who.to_string();
 
             // Update the Gantt
