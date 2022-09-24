@@ -108,12 +108,6 @@ impl Gantt {
             .push_milestone(milestone, at);
     }
 
-    /// If the graph did not have this section, `None` is returned.
-    /// Otherwise the section is updated, and the old section is returned. The section's name is not updated, though.
-    pub fn add_section(&mut self, name: String, section: Section) -> Option<Section> {
-        self.sections.insert(name, section)
-    }
-
     pub fn to_md(&self) -> Vec<String> {
         let mut rows = vec![
             "gantt".to_string(),
@@ -169,30 +163,5 @@ mod tests {
     fn time_formatting() {
         assert_eq!(format_time(&Duration::new(4, 0)), "04.000");
         assert_eq!(format_time(&Duration::from_millis(1234)), "01.234");
-    }
-
-    #[test]
-    fn adding_a_section() {
-        let mut section = Section::new();
-        section.push_task(
-            "task".to_string(),
-            Duration::from_secs(0),
-            Duration::from_secs(1),
-        );
-
-        let mut gantt = Gantt::new();
-        gantt.add_section("Saturday".to_string(), section);
-
-        assert_eq!(
-            gantt.to_md(),
-            [
-                "gantt",
-                "dateFormat ss.SSS",
-                "axisFormat %S.%L s",
-                "",
-                "section Saturday",
-                "task: 00.000, 01.000",
-            ]
-        );
     }
 }
