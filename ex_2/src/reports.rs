@@ -30,6 +30,8 @@ pub struct Reporter {
     pub tab: u8,
 }
 
+pub type ReportMessage = (u32, Action, Duration);
+
 pub struct ReporterConfig {
     /// 打印信息时每个进程缩进的数量
     pub tab: u8,
@@ -47,7 +49,7 @@ impl Reporter {
     /// Receive reports
     ///
     /// Reports format: (who, action, now.elapsed())
-    pub fn receive(&mut self, rx: Receiver<(u32, Action, Duration)>) {
+    pub fn receive(&mut self, rx: Receiver<ReportMessage>) {
         for (who, action, at) in rx {
             let who_str = who.to_string();
 

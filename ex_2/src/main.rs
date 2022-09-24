@@ -1,9 +1,10 @@
-use std::io;
+use std::{io, sync::mpsc};
 
 use clap::{Parser, ValueEnum};
 
 use ex_2::{
-    run_read_preferring, run_unspecified_priority, run_write_preferring, Operator, ReporterConfig,
+    run_read_preferring, run_unspecified_priority, run_write_preferring, Operator, Reporter,
+    ReporterConfig,
 };
 
 #[derive(Parser)]
@@ -41,9 +42,14 @@ fn main() {
 
     let operators = ready_inputs();
 
+    let (tx, rx) = mpsc::channel();
     match args.policy {
-        Policy::ReadPreferring => run_read_preferring(operators, config),
-        Policy::WritePreferring => run_write_preferring(operators, config),
-        Policy::UnspecifiedPriority => run_unspecified_priority(operators, config),
+        Policy::ReadPreferring => run_read_preferring(operators, tx),
+        Policy::WritePreferring => run_write_preferring(operators, tx),
+        Policy::UnspecifiedPriority => run_unspecified_priority(operators, tx),
     }
+
+    let mut reporter = Reporter::new(config);
+    reporter.receive(rx);
+    println!("{}", reporter.draw().join("\n"));
 }
