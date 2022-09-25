@@ -406,6 +406,83 @@ pub enum OperatorRole {
   classDef sema fill: orange;
   ```
 
+##### 一个错误实现及解决
+
+我一不小心就死锁了……当时一个写者（#2）结束后，无法通知下一写者（#5）开始写入。
+
+```powershell
+> cat .\test_cases\mixed.in | cargo run -- write-preferring --tab 10
+ 0.000 s |          #1：🚀创建。
+ 0.000 s |                    #2：🚀创建。
+ 0.000 s |                              #3：🚀创建。
+ 0.000 s |                                        #4：🚀创建。
+ 0.000 s |                                                  #5：🚀创建。
+ 3.004 s |          #1：🔔👀申请读取。
+ 3.005 s |          #1：🏁👀开始读取。
+ 4.021 s |                    #2：🔔📝申请写入。
+ 5.010 s |                              #3：🔔👀申请读取。
+ 5.110 s |                                                  #5：🔔📝申请写入。
+ 6.020 s |                                        #4：🔔👀申请读取。
+ 8.024 s |          #1：🛑👀结束读取。
+ 8.025 s |                    #2：🏁📝开始写入。
+13.030 s |                    #2：🛑📝结束写入。
+# 运行到这里应该让 #5 开始写入，但实际会卡住。
+```
+
+当时的写者线程如下。
+
+```mermaid
+flowchart TB
+ell["…"]
+--> enter
+--> write:::crit
+--> exit
+
+subgraph access
+    write
+    exit
+end
+
+subgraph enter["n_writers的互斥锁"]
+    increase["*n_writers += 1"]
+    --> if_first{*n_writers == 1}
+    -->|是| wait_can["wait(can_reader_acquire)"]:::sema
+    --> wait["wait(access)"]:::sema
+    if_first -->|否| wait
+end
+
+subgraph exit["n_writers的互斥锁"]
+    decrease["*n_writers -= 1"]
+    --> if_last{*n_writers == 0}
+    -->|是| signal_can["signal(can_reader_acquire)"]:::sema
+    --> signal["signal(access)"]:::sema
+    if_last -->|否| signal
+end
+
+classDef crit fill: red;
+classDef sema fill: orange;
+```
+
+现在的写者准备退出时，下一个写者（#5）已经拿着（第一段）`n_writers`的锁在`wait(access)`，可现在的写者（#2）不拿到（第二段）`n_writers`的锁就无法`signal(access)`。于是卡住了。
+
+```mermaid
+flowchart LR
+
+2([现在的写者<br>#2]) -.-> n_writers的锁:::sema --> 5([下一个写者<br>#5])
+-.-> access:::sema --> 2
+
+classDef sema fill: orange;
+```
+
+解决办法：
+
+- 将`wait(access)`向后挪出`n_writers`的锁。
+- 将`signal(access)`向前挪出`n_writers`的锁。
+
+执行任意一种办法即可打破死锁，最后我两种都采取了。
+
+> 我当时先试验出解决办法（尽量让`wait`、`signal`顺序相反），然后才反应过来怎么回事……
+
 #### 公平竞争`run_unspecified_priority`
 
 所有操作员都要一起排队，从而保证公平。
@@ -602,10 +679,172 @@ pub fn signal(semaphore: &Semaphore) {
 
   释放资源（`*lock = true`），用`cvar`通知他人。
 
-### `Reporter`
+### 记录员`Reporter`
 
-- 共享状态
-- 消息传递
+记录员`Reporter`的核心功能是打印带时间的记录，这要求有个变量记录“一切开始的时间”，并且每位操作员`Operator`都能知道它的值——这已涉及进程间的**协作**。这时还没那么复杂，因为“访问”并不互斥，直接用普通常量即可。
+
+后来我又给`Reporter`加了些状态（把记录存储到一串列表里），每位操作员都有可能修改——这引发了质变：修改必须互斥。于是要加**互斥锁`Mutex`**，每位操作员还要在百忙之中维护`Reporter`……这种方式最终呈现为复杂、混乱、恶心。
+
+后来我改用消息传递（`mpsc::channel`，multi-producer, single-consumer channel），好一些。
+
+#### 协作
+
+记录员在主线程；每位操作员在一条线程，单向发送记录到记录员。
+
+```mermaid
+flowchart LR
+rx -.-> 记录员
+
+操作员1[操作员] -.-> tx1[tx]
+操作员2[操作员] -.-> tx2[tx]
+操作员3[操作员] -.-> tx3[tx]
+
+subgraph Sender
+    tx1
+    tx2
+    tx3
+end
+
+Sender -->|mpsc::channel| Receiver
+
+subgraph Receiver
+    rx
+end
+```
+
+主线程中，一切开始时设置常量`now`（`let now = Instant::now()`），所有线程共同访问（并不修改）这一常量。操作员`Operator`发送消息`ReportMessage`前，先计算距离`now`的时间（`now.elapsed()`），一同发送给记录员。
+
+- `run_○○()`中，每位操作员`Operator`发送运行记录。
+
+  ```rust
+  pub fn run_○○(operators: Vec<Operator>, tx: Sender<ReportMessage>) {
+      // --snip--
+  
+      for o in operators {
+          // --snip--
+          let tx = tx.clone();
+  
+          thread::spawn(move || {
+              tx.send((o.id, Action::Create, now.elapsed())).unwrap();
+              // ↑ 向记录员发送运行记录。
+  
+              // --snip--
+          })
+      }
+  }
+  ```
+
+- 主线程的`main()`中，记录员`Reporter`接收这些记录。
+
+  ```rust
+  fn main() {
+      // --snip--
+      let args = Args::parse();
+      let operators = ready_inputs();
+  
+      let (tx, rx) = mpsc::channel();
+      match args.policy {
+          Policy::○○ => run_○○(operators, tx),
+          // --snip--
+      }
+  
+      let mut reporter = Reporter::new(config);
+      reporter.receive(rx);
+      // ↑ 记录员接收运行记录。
+  }
+  ```
+
+#### 结构和功能
+
+```rust
+/// (操作员的 id, 动作, now.elapsed())
+pub type ReportMessage = (u32, Action, Duration);
+```
+
+```mermaid
+flowchart LR
+subgraph enum Action
+    Create[创建线程<br>Create]
+
+    subgraph 读者
+        RequestRead[申请读取<br>RequestRead]
+        StartRead[开始读取<br>StartRead]
+        EndRead[结束读取<br>EndRead]
+    end
+    
+    subgraph 写者
+        RequestWrite[申请写入<br>RequestWrite]
+        StartWrite[开始写入<br>StartWrite]
+        EndWrite[结束写入<br>EndWrite]
+    end
+end
+```
+
+> `Reporter`并不涉及`Operator`的实现细节（`OperatorRole`等）。
+
+```mermaid
+classDiagram-v2
+
+class Reporter {
+    -gantt: Gantt 绘图记录
+    -pending_start_at: HashMap~u32, Duration~
+    +打印格式等配置
+    
+    +receive(rx: Receiver~ReportMessage~)
+    +draw() Vec~String~
+}
+```
+
+- **`pending_start_at`**
+
+  记录那些已开始、未结束的操作员的开始时间。键是操作员的 id，值是开始时间。
+
+- **`receive()`**
+
+  从`rx`接收所有消息，每次立即打印到 stdout，适当时用`gantt`绘图。
+
+  - 打印：`let action_str = match action { … }`，随便`println!`即可。
+
+  - 绘图：有 Milestone（瞬时）、Task（持续）两种元素，后者需要等结束了再绘图。
+
+    ```mermaid
+    flowchart LR
+    match[match action]
+    -->|"🚀创建"| milestone["gantt.push_milestone(…)"]
+    match -->|"🔔👀申请读取"| milestone
+    match -->|"🔔📝申请写入"| milestone
+    
+    match -->|"🏁👀开始读取"| insert[暂存开始时间到 pending_start_at]
+    match -->|"🏁📝开始写入"| insert
+    
+    %% 好像不能叫“remove”？
+    match -->|"🛑👀结束读取"| remove_[pending_start_at 获取开始时间]
+    --> task["gantt.push_task(…)"]
+    match -->|"🛑📝结束写入"| remove_
+    ```
+
+- **`draw()`**
+
+  调用`gantt.to_md()`。
+
+#### Gantt 图
+
+生成 [mermaid.js 的 Gantt 图](https://mermaid-js.github.io/mermaid/#/gantt)，实现为单独一个模块，不涉及任何`Reporter`、`Operator`。
+
+就是单纯往`Vec`添加东西，没什么可介绍的……唯一稍微复杂点儿的是`Markdown` trait，然后逐层实现它。
+
+```rust
+trait Markdown {
+    /// Export to mermaid.js markdown, as a list of rows.
+    fn to_md(&self) -> Vec<String>;
+}
+```
+
+1. `pub struct Gantt`
+2. `pub struct Section`
+3. `enum Record`
+   - `struct Milestone`
+   - `struct Task`
 
 ## 实验结果及数据分析
 

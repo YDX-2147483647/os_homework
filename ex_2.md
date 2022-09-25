@@ -77,7 +77,7 @@ reporter.report(&o, Action::End);
 13.030 s |                    #2：🛑📝结束写入。
 ```
 
-运行到这里会卡住，因为下一个写者（#5）已经拿着`n_writters`的锁在`wait(&*access)`，可现在的写者（#2）不拿到`n_writters`的锁就无法`signal(&*access)`。
+运行到这里会卡住，因为下一个写者（#5）已经拿着`n_writers`的锁在`wait(&*access)`，可现在的写者（#2）不拿到`n_writers`的锁就无法`signal(&*access)`。
 
 > 我当时先试验出解决办法（尽量让`wait`、`signal`顺序相反），然后才反应过来怎么回事……
 

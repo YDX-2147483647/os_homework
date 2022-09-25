@@ -30,6 +30,7 @@ pub struct Reporter {
     pub tab: u8,
 }
 
+/// (who, action, now.elapsed())
 pub type ReportMessage = (u32, Action, Duration);
 
 pub struct ReporterConfig {
