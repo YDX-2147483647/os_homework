@@ -66,13 +66,13 @@ fn signal(semaphore) {
 
 ## 实验设计方法
 
-> 另请参阅自动生成的文档：`cargo doc --open`或手动打开`target/doc/ex_2/index.html`。那里会有更细节的东西，比如`id`存储时是用多少位整数。
+> 另请参阅自动生成的文档：`cargo doc --open`（需要 Cargo）。那里会有更细节的东西。
 
 ### 操作员`Operator`（`operator.rs`）
 
 #### 结构
 
-针对输入设计`Operator`操作员。（如下
+针对输入设计`Operator`操作员。（如下）
 
 ```mermaid
 classDiagram-v2
@@ -136,7 +136,7 @@ pub enum OperatorRole {
 
 1. 由于互斥访问（读者团体—写者、写者—另一写者），需用**信号量`access`**表示文件的读写权。
 
-   谁占有`access`（把`acess`改成假），谁就能操作文件。
+   谁占有`access`（把`access`改成假），谁就能操作文件。
 
    初始时，所有人都可随时夺权，因此取真。
 
@@ -501,7 +501,7 @@ classDef sema fill: orange;
 
    所有操作员申请`access`时都要在`service`排队，申请前`wait`，申请后`signal`。
 
-3. **检查**一下有没有破坏读者团体内允许。
+3. **检查**一下有没有破坏“读者团体内允许”。
 
    读者的`service`区间几乎和`n_readers`的互斥锁一致，所以没破坏。
 
@@ -645,6 +645,8 @@ type Semaphore = (Mutex<bool>, Condvar);
 ```
 
 > 因为本实验用到信号量的地方都只有一个资源，我就直接把信号量的值设计成`bool`了。
+
+> 使用时要先按`Arc` dereference（`*semaphore`），然后 borrow（`&*semaphore`），再传给`wait`或`signal`。
 
 下面来看 P、V 操作。
 
@@ -818,7 +820,7 @@ class Reporter {
     match -->|"🏁📝开始写入"| insert
     
     %% 好像不能叫“remove”？
-    match -->|"🛑👀结束读取"| remove_[pending_start_at 获取开始时间]
+    match -->|"🛑👀结束读取"| remove_[从 pending_start_at 获取开始时间]
     --> task["gantt.push_task(…)"]
     match -->|"🛑📝结束写入"| remove_
     ```
@@ -850,7 +852,7 @@ trait Markdown {
 
 > 输入方式和输出格式请见`ReadMe.md`。
 
-这里主要以`mixed.in`为例，正文中时间只精确到秒。
+这里主要以`mixed.in`为例；正文中时间只精确到秒。
 
 ### 读者优先
 
