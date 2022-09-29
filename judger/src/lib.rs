@@ -73,7 +73,10 @@ pub fn check_given_output(
             let input = fs::read_to_string(&path)?;
 
             let your = run(&test_set.program, &input)?;
-            let expected = fs::read_to_string(path.with_extension("out"))?;
+            let expected = fs::read_to_string(path.with_extension("out"))?
+                .replace("\r\n", "\n")
+                .trim_end()
+                .to_string();
 
             if your == expected {
                 Ok(CheckedCase {
