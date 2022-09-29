@@ -240,11 +240,11 @@ protected:
     Page next_to_swap(const Request &current_request, const Request begin, const Request end)
     {
         Page best_page = this->table.begin();
-        auto best_rounds = this->when_last_request(*best_page, current_request, begin);
+        auto best_rounds = this->when_prev_request(*best_page, current_request, begin);
 
         const auto table_end = this->table.end();
         for (auto p = this->table.begin(); p != table_end; ++p) {
-            auto r = this->when_last_request(*p, current_request, begin);
+            auto r = this->when_prev_request(*p, current_request, begin);
 
             if (r > best_rounds) {
                 best_page = p;
@@ -260,7 +260,7 @@ protected:
      *
      * @return 自那时的轮数（若再未申请，则是到开头的轮数）
      */
-    size_t when_last_request(int page, const Request &current_request, const Request begin)
+    size_t when_prev_request(int page, const Request &current_request, const Request begin)
     {
         const auto rbegin = prev(begin);
 
