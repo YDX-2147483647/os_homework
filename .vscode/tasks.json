@@ -33,8 +33,22 @@
 			"args": [
 				"run",
 				"../ex_1/ex_1-event.exe",
+				"../ex_1/test_cases/",
 				"../ex_1/ex_1.exe",
-				"../ex_1/test_cases/"
+			],
+			"options": {
+				"cwd": "judger/"
+			},
+			"group": "test"
+		},
+		{
+			"type": "shell",
+			"label": "Judger: Check exercise 3",
+			"command": "cargo",
+			"args": [
+				"run",
+				"../ex_3/ex_3.exe",
+				"../ex_3/test_cases/",
 			],
 			"options": {
 				"cwd": "judger/"

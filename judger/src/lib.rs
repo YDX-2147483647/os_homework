@@ -3,42 +3,20 @@ use std::{error::Error, ffi::OsStr, fs, path::PathBuf};
 
 use run::run;
 
-pub struct Config {
+pub struct RegressionTestSet {
     /// 要测试的程序
     pub program: String,
     /// 用来参考的程序（认为其输出永远正确）
     pub ref_program: String,
     /// 测试用例所在文件夹（只会用到其中的`*.in`）
-    pub test_cases: String,
+    pub cases: String,
 }
 
-impl Config {
-    pub fn build(mut args: impl Iterator<Item = String>) -> Result<Config, &'static str> {
-        args.next(); // ignore args[0]
-
-        let program = match args.next() {
-            Some(a) => a,
-            None => return Err("Didn't give the program to test"),
-        };
-        let ref_program = match args.next() {
-            Some(a) => a,
-            None => return Err("Didn't give the program for reference"),
-        };
-        let test_cases = match args.next() {
-            Some(a) => a,
-            None => return Err("Didn't give the directory of test cases"),
-        };
-
-        if args.next().is_some() {
-            return Err("Too many arguments");
-        }
-
-        Ok(Config {
-            program,
-            ref_program,
-            test_cases,
-        })
-    }
+pub struct GivenOutputTestSet {
+    /// 要测试的程序
+    pub program: String,
+    /// 测试用例所在文件夹（只会用到其中的`*.in`和`*.out`）
+    pub cases: String,
 }
 
 #[derive(Debug)]
@@ -58,16 +36,44 @@ pub struct CheckedCase {
     pub result: CheckResult,
 }
 
-pub fn check(config: &Config) -> Result<Vec<CheckedCase>, Box<dyn Error>> {
-    fs::read_dir(&config.test_cases)?
+pub fn check_regression(test_set: &RegressionTestSet) -> Result<Vec<CheckedCase>, Box<dyn Error>> {
+    fs::read_dir(&test_set.cases)?
         .filter(|entry| entry.is_ok())
         .map(|entry| entry.unwrap().path())
         .filter(|path| path.extension() == Some(OsStr::new("in")))
         .map(|path| {
             let input = fs::read_to_string(&path)?;
 
-            let your = run(&config.program, &input)?;
-            let expected = run(&config.ref_program, &input)?;
+            let your = run(&test_set.program, &input)?;
+            let expected = run(&test_set.ref_program, &input)?;
+
+            if your == expected {
+                Ok(CheckedCase {
+                    result: CheckResult::Accepted,
+                    path,
+                })
+            } else {
+                Ok(CheckedCase {
+                    path,
+                    result: CheckResult::WrongAnswer(WrongAnswerResult { expected, your }),
+                })
+            }
+        })
+        .collect()
+}
+
+pub fn check_given_output(
+    test_set: &GivenOutputTestSet,
+) -> Result<Vec<CheckedCase>, Box<dyn Error>> {
+    fs::read_dir(&test_set.cases)?
+        .filter(|entry| entry.is_ok())
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension() == Some(OsStr::new("in")))
+        .map(|path| {
+            let input = fs::read_to_string(&path)?;
+
+            let your = run(&test_set.program, &input)?;
+            let expected = fs::read_to_string(path.with_extension("out"))?;
 
             if your == expected {
                 Ok(CheckedCase {
