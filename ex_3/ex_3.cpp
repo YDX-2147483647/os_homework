@@ -231,6 +231,50 @@ protected:
     }
 };
 
+class ManagerLeastRecentlyUsed : public Manager
+{
+public:
+    ManagerLeastRecentlyUsed(unsigned int n_frames) : Manager(n_frames) {}
+
+protected:
+    Page next_to_swap(const Request &current_request, const Request begin, const Request end)
+    {
+        Page best_page = this->table.begin();
+        auto best_rounds = this->when_last_request(*best_page, current_request, begin);
+
+        const auto table_end = this->table.end();
+        for (auto p = this->table.begin(); p != table_end; ++p) {
+            auto r = this->when_last_request(*p, current_request, begin);
+
+            if (r > best_rounds) {
+                best_page = p;
+                best_rounds = r;
+            }
+        }
+
+        return best_page;
+    }
+
+    /**
+     * @brief when the last same page was requested
+     *
+     * @return 自那时的轮数（若再未申请，则是到开头的轮数）
+     */
+    size_t when_last_request(int page, const Request &current_request, const Request begin)
+    {
+        const auto rbegin = prev(begin);
+
+        size_t round = 0;
+
+        auto r = current_request;
+        while (r != rbegin && *r != page) {
+            round++;
+            --r;
+        }
+        return round;
+    }
+};
+
 int main()
 {
     auto input = read_inputs();
@@ -242,6 +286,9 @@ int main()
         break;
     case Policy::Optimal:
         manager = new ManagerOptimal(input.n_frames);
+        break;
+    case Policy::LeastRecentlyUsed:
+        manager = new ManagerLeastRecentlyUsed(input.n_frames);
         break;
 
     default:
