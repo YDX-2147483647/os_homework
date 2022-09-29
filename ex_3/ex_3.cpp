@@ -82,7 +82,7 @@ void write_outputs(vector<PageChange> changes)
         }
 
         // 3. hit or miss
-        cout << c.hit ? "1" : "0";
+        cout << (c.hit ? "1" : "0");
 
         // 4. count page faults
         n_page_faults += !c.hit;
@@ -124,6 +124,8 @@ public:
 
         return changes;
     }
+
+    virtual ~Manager() {}
 
 protected:
     virtual void swap(Page where, int frame)
