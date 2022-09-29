@@ -49,6 +49,7 @@ Input read_inputs()
 /// 页表，数字表示物理页框号，`IDLE`表示空闲
 using PageTable = vector<int>;
 using Page = PageTable::iterator;
+using Request = vector<int>::const_iterator;
 
 struct PageChange {
     PageTable table;
@@ -104,7 +105,8 @@ public:
     {
         vector<PageChange> changes;
 
-        const auto request_end = requests.end();
+        const auto request_begin = requests.begin(),
+                   request_end = requests.end();
         for (auto r = requests.begin(); r != request_end; ++r) {
             const bool hit = this->can_hit(*r);
 
@@ -112,7 +114,7 @@ public:
                 // Find where to insert / swap
                 auto where = this->find_idle();
                 if (where == this->table.end()) {
-                    where = this->next_to_swap(r);
+                    where = this->next_to_swap(r, request_begin, request_end);
                 }
 
                 // insert / swap
@@ -149,7 +151,7 @@ protected:
         return p;
     }
 
-    virtual Page next_to_swap(const vector<int>::const_iterator &current_request) = 0;
+    virtual Page next_to_swap(const Request &current_request, const Request begin, const Request end) = 0;
 
     bool can_hit(int request)
     {
@@ -171,19 +173,61 @@ public:
     ManagerFIFO(unsigned int n_frames) : Manager(n_frames) {}
 
 protected:
-    Page next_to_swap(const vector<int>::const_iterator &current_request)
+    virtual Page next_to_swap(const Request &current_request, const Request begin, const Request end)
     {
         return this->history.front();
     }
 
-    void swap(Page where, int frame)
+    virtual void swap(Page where, int frame)
     {
         if (*where != IDLE) {
-            this->history.pop_front();
+            this->history.remove(where);
         }
 
         Manager::swap(where, frame);
         this->history.push_back(where);
+    }
+};
+
+class ManagerOptimal : public ManagerFIFO
+{
+
+public:
+    ManagerOptimal(unsigned int n_frames) : ManagerFIFO(n_frames) {}
+
+protected:
+    Page next_to_swap(const Request &current_request, const Request begin, const Request end)
+    {
+        Page best_page = this->history.front();
+        auto best_rounds = this->when_next_request(*best_page, current_request, end);
+
+        for (auto &&p : this->history) {
+            auto r = this->when_next_request(*p, current_request, end);
+
+            if (r > best_rounds) {
+                best_page = p;
+                best_rounds = r;
+            }
+        }
+
+        return best_page;
+    }
+
+    /**
+     * @brief when the next same page will be requested
+     *
+     * @return 到那时的轮数（若再未申请，则是到结尾的轮数）
+     */
+    size_t when_next_request(int page, const Request &current_request, const Request end)
+    {
+        size_t round = 0;
+
+        auto r = current_request;
+        while (r != end && *r != page) {
+            round++;
+            ++r;
+        }
+        return round;
     }
 };
 
@@ -195,6 +239,9 @@ int main()
     switch (input.policy) {
     case Policy::FirstInFirstOut:
         manager = new ManagerFIFO(input.n_frames);
+        break;
+    case Policy::Optimal:
+        manager = new ManagerOptimal(input.n_frames);
         break;
 
     default:
