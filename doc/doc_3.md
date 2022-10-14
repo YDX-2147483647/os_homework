@@ -64,7 +64,7 @@
 
   - “页表”`PageTable`（`vector<int>`的别名）。
 
-    索引是物理页框号，内容是逻辑页面号，`IDLE`（`-1`）表示空闲。
+    ==索引是物理页框号，内容是逻辑页面号==，`IDLE`（`-1`）表示空闲。
 
     > 页表用于重定位，逻辑页面 → 物理页框；而这里的`PageTable`记录存储情况，是反过来映射（物理页框 → 逻辑页面），严格来说并非页表。（但我想不出更好的名字）
 
@@ -163,14 +163,14 @@ read_inputs -->|input| 匹配要求的策略 -->|manager| 模拟请求页面 -->
        输出分隔符 --> out_table --> 输出缺页情况 --> 计数[n_page_faults += !c.hit]
    
        subgraph 输出分隔符
-           is_first_change
+           is_first_change{is_first_change}
            -->|true| set_is_first_change[is_first_change = false]
            is_first_change
            -->|false| sep["输出 /"]
        end
    
        subgraph out_table["输出“页表”：用 i 遍历 c.table"]
-           idle[i == IDLE] -->|"✓"| 输出- --> 输出,
+           idle{i == IDLE} -->|"✓"| 输出- --> 输出,
            idle -->|"✗"| 输出i --> 输出,
        end
        
@@ -179,6 +179,172 @@ read_inputs -->|input| 匹配要求的策略 -->|manager| 模拟请求页面 -->
    ```
 
 ### 页面置换策略设计
+
+#### 公共
+
+设计虚基类`Manager`，每种策略分别实现它，`main()`再实例化它们。
+
+```mermaid
+classDiagram-v2
+    class Manager {
+        +request(const vector~int~ &requests) vector~PageChange~
+        #PageTable table
+        #can_hit(int request) bool
+        #find_idle() Page
+        #next_to_swap(const Request &current_request, const Request begin, const Request end)* Page
+        #swap(Page where, int frame)*
+    }
+    
+    Manager <|-- ManagerFIFO
+    ManagerFIFO <|-- ManagerOptimal
+    Manager <|-- ManagerLeastRecentlyUsed
+```
+
+- **构造函数**
+
+  根据要求的物理页框数`n_frames`初始化`table`，全部用`IDLE`填充——一开始所有块都空闲。
+
+- **响应页面请求`request(requests) → changes`**
+
+  这是暴露给使用者的唯一方法。它输入请求序列`requests`，输出每次更改情况`changes`。
+
+  ==无论是哪种页面置换策略，`request`逻辑都完全相同==，如下。
+
+  ```mermaid
+  flowchart TB
+      init[创建空 changes: vector&ltPageChange>]
+      --> for
+      --> return[返回 changes]
+      
+      subgraph for[用 r: Request 遍历 requests]
+          direction TB
+  
+          can_hit{"能否命中<br>can_hit(*r)"}:::crit
+          -->|hit| push[向 changes 记录当前 table 和命中情况]
+  
+          can_hit
+          -->|miss| find_["查找空闲块<br>where = find_idle()"]:::crit
+          -->|找到了| swap["直接存储或置换<br>swap(where, *r)"]:::crit
+          --> push
+          
+          find_
+          -->|没找到| next["选择要置换的页框<br>where = next_to_swap(r, …)"]:::crit
+          --> swap
+      end
+      
+  classDef crit fill:orange;
+  ```
+
+  > `r`的类型是`vector<int>::const_iterator`。我为了方便理解，起了别名`Request`。
+
+- **判断请求能否命中`can_hit(request) → bool`**
+
+  > “命中”指当前物理页框已包含请求的逻辑页面，即不缺页。
+
+  遍历查找当前`table`即可。
+
+  ```mermaid
+  flowchart
+      for --> false[return false]
+  
+      subgraph for[用 p 遍历 table]
+          if{p 满足 request} -->|"✓"| true[return true]
+          if -->|"✗"| 继续遍历
+      end
+  ```
+
+- **查找空闲块`find_idle() → Page`**
+
+  输出`table`中首个空闲物理页框的指针（实际是`PageTable::iterator`，`Page`是它的别名）；若无空闲块，返回`table.end()`。
+
+  > 这里的`Page`指物理页框，而非逻辑页面——这里存储的“页表”`table`与一般意义的页表相反，于是变量名也跟着相反了。
+
+  遍历查找即可。
+
+  ```mermaid
+  flowchart
+      begin["p = table.begin()"]
+      --> while{p 是否空闲}
+      -->|"✗"| inc[++p]
+      --> while
+  
+      while -->|"✓"| return[返回 p]
+      while -->|已遍历完| return[返回 p]
+  ```
+
+  > 遍历完时`p == table.end()`，直接返回即可。
+
+- **查找要置换的页框`next_to_swap(current_request, …) → Page`**
+
+  这是==每种置换策略的区别所在==，因此是纯虚函数。
+
+  有些策略除了关注当前请求，还会参考前后其它请求，所以需要传入整个请求序列。具体来说，`next_to_swap()`除了要求`current_request`（`const Request &`），还要求请求序列`requests`的收尾（`begin`、`end`）。
+
+- **直接存储或置换`swap(where, frame)`**
+
+  输入要存储的位置`where`（“页表”`table`中的“指针”，即物理页框）和要存储的逻辑页面号`frame`，更改`table`。
+
+  说得这么复杂，其实方法里只有一条语句：
+
+  ```c++
+  virtual void swap(Page where, int frame)
+  {
+      *where = frame;
+  }
+  ```
+
+  所有置换策略的`swap`相同，但有些策略需要加钩子（在`swap`前后做点~儿~什么），所以还是声明成了虚函数。
+
+#### 先进先出`ManagerFIFO`
+
+要记录“谁先来”，所以需记录历史`history`（当前使用的物理页框的链表，`list<Page>`，按照使用先后排列）。
+
+```mermaid
+classDiagram-v2
+    Manager <|-- ManagerFIFO
+
+    class ManagerFIFO {
+        #list~Page~ history
+        #next_to_swap(current_request, …) Page
+        #swap(where, frame)
+    }
+```
+
+- **`next_to_swap`**
+
+  先进先出，直接`return this->history.front()`即可。
+
+- **`swap(where, frame)`**
+
+  除了置换，还要记录历史——来时追加，替时删除。
+
+  ```mermaid
+  flowchart
+      if{"*where ≠ IDLE"}
+      -->|"✓<br>这次是置换"| remove_["history.remove(where)"]:::crit
+      --> swap[按原来 swap]
+      --> push["history.push(where)"]:::crit
+  
+      if -->|"✗<br>这次是直接存储"| swap
+  
+  classDef crit fill:orange;
+  ```
+
+#### 最佳`ManagerOptimal`
+
+```mermaid
+classDiagram-v2
+    ManagerFIFO <|-- ManagerOptimal
+    
+    class ManagerOptimal {
+        #next_to_swap(current_request, …) Page
+        #when_next_request(page, …) size_t
+    }
+```
+
+
+
+
 
 ## 实验结果及数据分析
 
