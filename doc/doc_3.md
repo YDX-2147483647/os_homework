@@ -342,9 +342,83 @@ classDiagram-v2
     }
 ```
 
+> `ManagerOptimal`继承`ManagerFIFO`的原因之后会解释。
 
+- **逻辑页面到下次请求的轮数`when_next_request（page, …) → size_t`**
 
+  最佳算法要置换未来“最晚用到的”逻辑页面，因此需计算到下次请求的轮数。（若此后再无请求，则返回到结尾的轮数。）
 
+  传入请求序列`requests`，向后遍历查找`page`即可。（实际传入的是请求序列的两个“指针”：`current_request`和`end`。）
+
+  ```mermaid
+  flowchart LR
+      init_round[round = 0]
+      --> init
+  
+      subgraph 向后遍历查找
+          init[r = current_request]
+          --> while{"r ≠ end ∧<br> *r ≠ page"}
+          -->|"✓"| inc[round++<br>++r]
+          --> while
+      end
+  
+      while -->|"✗"| return[返回 round]
+  
+  ```
+
+请求快到结尾时，可能有多种选择（很多页面都不会再请求，`when_next_request`返回值相同），且缺页次数相同。这时最佳算法有多种，本次实验规定按先进先出置换。因此，`ManagerOptimal`也需记录历史——我们==直接继承`ManagerFIFO`==就好啦。
+
+> 还没到结尾时，存在下次请求。假如有多个页面的`when_next_request`相同，那么它们的“下次请求”会是同一次，矛盾。故多解只存在于结尾。
+>
+> FIFO、LRU 只关心过去，不关心未来，没有类似情况。
+
+- **`next_to_swap`**
+
+  挑`when_next_request`最大的置换，相同时先来的优先。
+
+  使用擂台法寻找，按照来的顺序（遍历`history`）打擂台。
+
+  ```mermaid
+  flowchart
+      init["best_page = history.front()<br>best_rounds = when_next_request(*best_page, …)"]
+      --> for
+      --> return[返回 best_page]
+      
+      subgraph for[用 p 遍历 history]
+          calc["r = when_next_request(*p, …)"]
+          --> if{r > best_rounds}
+          -->|"✓"| update[best_page = p<br>best_rounds = r]
+          if -->|"✗"| 继续
+      end
+  ```
+
+#### 最近最久未用`ManagerLeastRecentlyUsed`
+
+最近最久未用策略和最佳策略精神一致，只是从“未来”改成了“过去”。
+
+- **逻辑页面到上次请求的轮数`when_prev_request（page, …) → size_t`**
+
+  和`ManagerOptimal`的`when_next_request`类似，只需`end`↦`rbegin`，`++r`↦`--r`。
+
+  > 实际传入`begin`，然后`rbegin = prev(begin)`。
+
+- **`next_to_swap`**
+
+  和`ManagerOptimal`的类似，但这里没有`history`，应当遍历`table`。
+
+  ```mermaid
+  flowchart
+      init["best_page = table.begin()<br>best_rounds = when_prev_request(*best_page, …)"]
+      --> for
+      --> return[返回 best_page]
+      
+      subgraph for[用 p 遍历 table]
+          calc["r = when_prev_request(*p, …)"]
+          --> if{r > best_rounds}
+          -->|"✓"| update[best_page = p<br>best_rounds = r]
+          if -->|"✗"| 继续
+      end
+  ```
 
 ## 实验结果及数据分析
 
