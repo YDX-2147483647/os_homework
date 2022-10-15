@@ -68,7 +68,7 @@
 
     > 页表用于重定位，逻辑页面 → 物理页框；而这里的`PageTable`记录存储情况，是反过来映射（物理页框 → 逻辑页面），严格来说并非页表。（但我想不出更好的名字）
 
-  - 页面更改`PageChange`。
+  - 页面更改情况`PageChange`。
 
   - 输出`vector<PageChange>`。
 
@@ -191,7 +191,7 @@ classDiagram-v2
         #PageTable table
         #can_hit(int request) bool
         #find_idle() Page
-        #next_to_swap(const Request &current_request, const Request begin, const Request end)* Page
+        #next_to_swap(const Request & current_request, const Request begin, const Request end)* Page
         #swap(Page where, int frame)*
     }
     
